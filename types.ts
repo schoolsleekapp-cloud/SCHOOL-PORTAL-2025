@@ -2,9 +2,9 @@
 export interface Subject {
   selectedSubject: string;
   name: string;
-  ca1: number;
-  ca2: number;
-  exam: number;
+  ca1: number | string;
+  ca2: number | string;
+  exam: number | string;
   total: number;
   average: number;
   grade: string;

@@ -1,3 +1,4 @@
+
 declare global {
   var __app_id: string | undefined;
 }
@@ -28,7 +29,8 @@ export const PSYCHOMOTOR_SKILLS = [
   "Handling Tools", "Drawing & Painting", "Musical Skills"
 ];
 
-export const ALL_NIGERIAN_SUBJECTS = [
+// Sort subjects alphabetically, but remove "Others" first
+const rawSubjects = [
   "Number Work", "Letter Work", "Health Habits", "Social Norms", "Rhymes", "Creative Arts", 
   "Phonics", "Handwriting", "Verbal Reasoning", "Quantitative Reasoning", "Vocational Aptitude", 
   "Basic Science & Technology", "National Values", "History", "Religion & National Values",
@@ -44,7 +46,13 @@ export const ALL_NIGERIAN_SUBJECTS = [
   "Security Education", "Catering Craft Practice", "Dyeing & Bleaching", "Photography",
   "Painting & Decorating", "Electrical Installation", "Auto Mechanics",
   "Others"
-].sort();
+];
+
+// Filter out 'Others', sort the rest, then push 'Others' to the end
+const sortedSubjects = rawSubjects.filter(s => s !== "Others").sort();
+sortedSubjects.push("Others");
+
+export const ALL_NIGERIAN_SUBJECTS = sortedSubjects;
 
 export const CLASS_LEVELS = [
   "Nursery 1", "Nursery 2", "Nursery 3",

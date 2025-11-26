@@ -265,7 +265,8 @@ export default function App() {
 
     if (field === 'selectedSubject') {
       subject.selectedSubject = value as string;
-      subject.name = value !== 'Others' ? value as string : '';
+      // If Others is selected, clear name to let user type. Otherwise set to value.
+      subject.name = value === 'Others' ? '' : value as string;
     } else if (field === 'name') {
       subject.name = value as string;
     } else {
@@ -273,9 +274,16 @@ export default function App() {
     }
     
     if (['ca1', 'ca2', 'exam'].includes(field as string) || field === 'selectedSubject') {
-      if (Number(subject.ca1) > 20) subject.ca1 = 20;
-      if (Number(subject.ca2) > 20) subject.ca2 = 20;
-      if (Number(subject.exam) > 60) subject.exam = 60;
+      // Treat empty string as 0 for validation/calculation
+      const ca1Val = Number(subject.ca1) || 0;
+      const ca2Val = Number(subject.ca2) || 0;
+      const examVal = Number(subject.exam) || 0;
+
+      if (ca1Val > 20) subject.ca1 = 20;
+      if (ca2Val > 20) subject.ca2 = 20;
+      if (examVal > 60) subject.exam = 60;
+
+      // Recalculate totals
       subject.total = (Number(subject.ca1) || 0) + (Number(subject.ca2) || 0) + (Number(subject.exam) || 0);
       const gradeInfo = calculateGrade(subject.total, formData.classLevel);
       subject.grade = gradeInfo.grade;
@@ -286,7 +294,14 @@ export default function App() {
   };
 
   const handleAddSubject = () => {
-    setFormData(prev => ({ ...prev, subjects: [...prev.subjects, { selectedSubject: '', name: '', ca1: 0, ca2: 0, exam: 0, total: 0, average: 0, grade: '', remark: '' }] }));
+    // Initialize scores as empty strings to avoid pre-filled "0"
+    setFormData(prev => ({ 
+        ...prev, 
+        subjects: [
+            ...prev.subjects, 
+            { selectedSubject: '', name: '', ca1: '', ca2: '', exam: '', total: 0, average: 0, grade: '', remark: '' }
+        ] 
+    }));
   };
 
   const handleRemoveSubject = (index: number) => {
@@ -303,7 +318,7 @@ export default function App() {
     else if (lvl.startsWith("JSS")) subjectsToLoad = ["Mathematics", "English Studies", "Basic Science", "Social Studies", "Civic Education"];
     else subjectsToLoad = ["Mathematics", "English Language", "Biology", "Economics"];
 
-    const mapped = subjectsToLoad.map(name => ({ selectedSubject: name, name, ca1: 0, ca2: 0, exam: 0, total: 0, average: 0, grade: 'F', remark: 'Fail' }));
+    const mapped = subjectsToLoad.map(name => ({ selectedSubject: name, name, ca1: '', ca2: '', exam: '', total: 0, average: 0, grade: 'F', remark: 'Fail' }));
     setFormData(prev => ({ ...prev, subjects: mapped }));
   };
 
@@ -955,12 +970,12 @@ export default function App() {
               {/* Domains & Attendance */}
               <div className="bg-gray-50 border border-gray-200 p-6 rounded-xl space-y-6">
                  <h3 className="text-lg font-bold text-gray-800 flex items-center gap-2"><Activity size={18} /> Domains & Attendance</h3>
-                 <div className="grid grid-cols-2 gap-6">
+                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div className="bg-white p-4 rounded border">
                        <h4 className="font-bold text-sm text-gray-600 mb-3 flex items-center gap-2"><Clock size={14}/> Attendance</h4>
-                       <div className="grid grid-cols-2 gap-4">
-                          <div><label className="text-xs font-bold text-gray-500 uppercase">Days Opened</label><input type="number" value={formData.attendance.total} onChange={(e) => setFormData({...formData, attendance: {...formData.attendance, total: Number(e.target.value)}})} className="w-full p-2 border rounded outline-none" /></div>
-                          <div><label className="text-xs font-bold text-gray-500 uppercase">Days Present</label><input type="number" value={formData.attendance.present} onChange={(e) => setFormData({...formData, attendance: {...formData.attendance, present: Number(e.target.value)}})} className="w-full p-2 border rounded outline-none" /></div>
+                       <div className="flex flex-col md:flex-row gap-4">
+                          <div className="flex-1"><label className="text-xs font-bold text-gray-500 uppercase">Days Opened</label><input type="number" value={formData.attendance.total} onChange={(e) => setFormData({...formData, attendance: {...formData.attendance, total: Number(e.target.value)}})} className="w-full p-2 border rounded outline-none" /></div>
+                          <div className="flex-1"><label className="text-xs font-bold text-gray-500 uppercase">Days Present</label><input type="number" value={formData.attendance.present} onChange={(e) => setFormData({...formData, attendance: {...formData.attendance, present: Number(e.target.value)}})} className="w-full p-2 border rounded outline-none" /></div>
                        </div>
                     </div>
                  </div>
