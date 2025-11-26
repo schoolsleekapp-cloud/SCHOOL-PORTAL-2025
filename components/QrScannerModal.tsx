@@ -36,9 +36,14 @@ const QrScannerModal: React.FC<Props> = ({ onScanSuccess, onClose }) => {
     const requestPermissionAndStart = async () => {
       try {
         // Request "environment" (rear) camera specifically for better mobile UX
-        await navigator.mediaDevices.getUserMedia({ 
+        const stream = await navigator.mediaDevices.getUserMedia({ 
             video: { facingMode: "environment" } 
         });
+        
+        // CRITICAL FIX: Stop the stream immediately. 
+        // We only opened it to trigger the permission prompt and verify access.
+        // If we don't close it, the scanner library will fail with "NotReadableError" (Camera busy) on mobile.
+        stream.getTracks().forEach(track => track.stop());
         
         // Permission granted, start scanner
         startScanner();
@@ -55,6 +60,8 @@ const QrScannerModal: React.FC<Props> = ({ onScanSuccess, onClose }) => {
            }
         } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
            errorMessage = "No camera device found.";
+        } else if (err.name === 'NotReadableError' || err.name === 'TrackStartError') {
+           errorMessage = "Camera is in use by another app or tab.";
         } else {
            errorMessage = err.message || "Unknown camera error.";
         }
@@ -98,7 +105,7 @@ const QrScannerModal: React.FC<Props> = ({ onScanSuccess, onClose }) => {
               console.error("Scanner Init Error:", err);
               setPermissionError("Failed to initialize scanner.");
             }
-          }, 100);
+          }, 300); // Slight delay to ensure DOM is ready and stream is fully closed
 
           return () => clearTimeout(timerId);
     };
