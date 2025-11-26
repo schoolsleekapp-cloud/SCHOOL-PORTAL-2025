@@ -1,0 +1,7 @@
+{
+  "name": "Copy of Sleek School Portal",
+  "description": "A comprehensive school result management system featuring AI-generated remarks, admin dashboards, and printable result sheets.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
