@@ -66,6 +66,7 @@ export interface StudentData {
   admissionNumber: string;
   schoolId: string;
   classLevel: string;
+  gender: string;
   parentPhone: string;
   generatedId?: string;
   schoolName?: string;

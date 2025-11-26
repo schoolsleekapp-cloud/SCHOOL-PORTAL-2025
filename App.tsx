@@ -4,7 +4,7 @@ import {
   School, FileText, Search, ShieldAlert, Edit, Users, Building2, 
   Database, Plus, Trash2, Trophy, Activity, 
   Sparkles, Loader2, Eye, ArrowLeft, RefreshCw, KeyRound, CheckCircle, Palette, Phone, Mail, MapPin, Clock, Star, UserCog,
-  Upload, QrCode, GraduationCap, Lock, House
+  Upload, QrCode, GraduationCap, Lock, House, LayoutDashboard, UserCheck, CreditCard
 } from 'lucide-react';
 import { collection, addDoc, query, where, getDocs, doc, updateDoc } from 'firebase/firestore';
 
@@ -14,6 +14,7 @@ import ResultTemplate from './components/ResultTemplate';
 import StudentIdCard from './components/StudentIdCard';
 import TeacherIdCard from './components/TeacherIdCard';
 import QrScannerModal from './components/QrScannerModal';
+import IdCardManager from './components/IdCardManager';
 import { ResultData, Subject, SchoolData, StudentData, ViewState, TeacherData } from './types';
 import { 
   THEME_COLORS, AFFECTIVE_TRAITS, PSYCHOMOTOR_SKILLS, 
@@ -34,8 +35,10 @@ export default function App() {
   
   // Super Admin Data
   const [superAdminKey, setSuperAdminKey] = useState('');
+  const [adminTab, setAdminTab] = useState<'overview' | 'schools' | 'students' | 'teachers' | 'results' | 'id_cards'>('overview');
   const [allSchools, setAllSchools] = useState<SchoolData[]>([]);
   const [allStudents, setAllStudents] = useState<StudentData[]>([]);
+  const [allTeachers, setAllTeachers] = useState<TeacherData[]>([]);
   const [allResults, setAllResults] = useState<ResultData[]>([]);
   const [masterSearch, setMasterSearch] = useState('');
 
@@ -399,6 +402,7 @@ export default function App() {
         admissionNumber: regData.admissionNumber || "",
         schoolId: regData.schoolId || "",
         classLevel: regData.classLevel || "",
+        gender: regData.gender || "Male",
         parentPhone: regData.parentPhone || "",
         generatedId: uniqueId,
         schoolName: schoolName,
@@ -539,15 +543,18 @@ export default function App() {
     setLoading(true); setError('');
     
     try {
-      const [res, sch, stu] = await Promise.all([
+      const [res, sch, stu, tch] = await Promise.all([
         getDocs(collection(db, 'Result Data')), 
         getDocs(collection(db, 'School Data')),
-        getDocs(collection(db, 'Student Data'))
+        getDocs(collection(db, 'Student Data')),
+        getDocs(collection(db, 'Teacher Data'))
       ]);
       setAllResults(res.docs.map(d => d.data() as ResultData));
       setAllSchools(sch.docs.map(d => d.data() as SchoolData));
       setAllStudents(stu.docs.map(d => d.data() as StudentData));
+      setAllTeachers(tch.docs.map(d => d.data() as TeacherData));
       setView('super-admin-view');
+      setAdminTab('overview');
     } catch(err: any) { 
       console.error(err);
       setError("Failed to fetch database. Check internet connection."); 
@@ -555,6 +562,201 @@ export default function App() {
   };
 
   // --- Views ---
+
+  const renderSuperAdminView = () => {
+    // Helper to calculate summary counts
+    const counts = {
+      schools: allSchools.length,
+      students: allStudents.length,
+      teachers: allTeachers.length,
+      results: allResults.length
+    };
+
+    // Filter Logic for each tab
+    const filteredSchools = allSchools.filter(s => s.schoolName?.toLowerCase().includes(masterSearch.toLowerCase()) || s.schoolId?.toLowerCase().includes(masterSearch.toLowerCase()));
+    const filteredStudents = allStudents.filter(s => s.studentName?.toLowerCase().includes(masterSearch.toLowerCase()) || s.admissionNumber?.toLowerCase().includes(masterSearch.toLowerCase()));
+    const filteredTeachers = allTeachers.filter(t => t.teacherName?.toLowerCase().includes(masterSearch.toLowerCase()) || t.generatedId?.toLowerCase().includes(masterSearch.toLowerCase()));
+    const filteredResults = allResults.filter(r => r.studentName?.toLowerCase().includes(masterSearch.toLowerCase()) || r.admissionNumber?.toLowerCase().includes(masterSearch.toLowerCase()));
+
+    const navItems = [
+      { id: 'overview', label: 'Overview', icon: LayoutDashboard },
+      { id: 'schools', label: 'Schools', icon: Building2 },
+      { id: 'students', label: 'Students', icon: Users },
+      { id: 'teachers', label: 'Teachers', icon: UserCheck },
+      { id: 'results', label: 'Results', icon: FileText },
+      { id: 'id_cards', label: 'ID Directory', icon: CreditCard },
+    ];
+
+    return (
+      <div className="max-w-6xl mx-auto space-y-6 animate-fade-in">
+        {/* Header */}
+        <div className="flex justify-between items-center bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
+           <div>
+              <h2 className="text-2xl font-bold text-gray-800">Master Database</h2>
+              <p className="text-sm text-gray-500">Super Admin Access</p>
+           </div>
+           <button onClick={() => setView('admin-dashboard')} className="px-4 py-2 bg-gray-100 text-gray-600 rounded-lg hover:bg-gray-200 transition">
+             Close Database
+           </button>
+        </div>
+
+        {/* Navigation Tabs */}
+        <div className="flex flex-wrap gap-2">
+          {navItems.map(item => (
+            <button
+              key={item.id}
+              onClick={() => setAdminTab(item.id as any)}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${adminTab === item.id ? 'bg-purple-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50 border border-transparent'}`}
+            >
+              <item.icon size={16} />
+              {item.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Tab Content */}
+        {adminTab === 'overview' && (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+             <div onClick={() => setAdminTab('schools')} className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 hover:shadow-md transition cursor-pointer group">
+                <div className="flex justify-between items-start mb-4">
+                  <div className="p-3 bg-orange-100 text-orange-600 rounded-lg"><Building2 size={24} /></div>
+                  <span className="text-2xl font-bold text-gray-800">{counts.schools}</span>
+                </div>
+                <h3 className="text-gray-600 font-medium group-hover:text-orange-600">Total Schools</h3>
+             </div>
+             <div onClick={() => setAdminTab('students')} className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 hover:shadow-md transition cursor-pointer group">
+                <div className="flex justify-between items-start mb-4">
+                  <div className="p-3 bg-blue-100 text-blue-600 rounded-lg"><Users size={24} /></div>
+                  <span className="text-2xl font-bold text-gray-800">{counts.students}</span>
+                </div>
+                <h3 className="text-gray-600 font-medium group-hover:text-blue-600">Total Students</h3>
+             </div>
+             <div onClick={() => setAdminTab('teachers')} className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 hover:shadow-md transition cursor-pointer group">
+                <div className="flex justify-between items-start mb-4">
+                  <div className="p-3 bg-yellow-100 text-yellow-600 rounded-lg"><UserCheck size={24} /></div>
+                  <span className="text-2xl font-bold text-gray-800">{counts.teachers}</span>
+                </div>
+                <h3 className="text-gray-600 font-medium group-hover:text-yellow-600">Total Teachers</h3>
+             </div>
+             <div onClick={() => setAdminTab('results')} className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 hover:shadow-md transition cursor-pointer group">
+                <div className="flex justify-between items-start mb-4">
+                  <div className="p-3 bg-green-100 text-green-600 rounded-lg"><FileText size={24} /></div>
+                  <span className="text-2xl font-bold text-gray-800">{counts.results}</span>
+                </div>
+                <h3 className="text-gray-600 font-medium group-hover:text-green-600">Results Published</h3>
+             </div>
+          </div>
+        )}
+
+        {adminTab !== 'overview' && adminTab !== 'id_cards' && (
+          <div className="bg-white p-4 rounded-lg shadow-sm flex items-center gap-2 mb-4 border border-gray-100">
+             <Search size={20} className="text-gray-400" />
+             <input 
+                type="text" 
+                placeholder={`Search in ${adminTab}...`} 
+                className="w-full outline-none text-gray-700 bg-transparent" 
+                value={masterSearch} 
+                onChange={(e) => setMasterSearch(e.target.value)}
+              />
+          </div>
+        )}
+
+        {adminTab === 'schools' && (
+           <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+             <div className="overflow-x-auto">
+                <table className="w-full text-left text-sm">
+                  <thead className="bg-gray-50 border-b border-gray-200 text-gray-600 font-semibold uppercase">
+                    <tr><th className="p-4">School Name</th><th className="p-4">ID</th><th className="p-4">Code</th><th className="p-4">Contact</th></tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {filteredSchools.map((s, i) => (
+                      <tr key={i} className="hover:bg-gray-50">
+                        <td className="p-4 font-bold text-gray-800">{s.schoolName}</td>
+                        <td className="p-4 text-gray-500">{s.schoolId}</td>
+                        <td className="p-4 text-red-500 font-mono">{s.schoolCode}</td>
+                        <td className="p-4 text-gray-600">{s.schoolPhone}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {filteredSchools.length === 0 && <div className="p-8 text-center text-gray-500">No schools found matching search.</div>}
+             </div>
+           </div>
+        )}
+
+        {adminTab === 'students' && (
+           <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+             <div className="overflow-x-auto">
+                <table className="w-full text-left text-sm">
+                  <thead className="bg-gray-50 border-b border-gray-200 text-gray-600 font-semibold uppercase">
+                    <tr><th className="p-4">Student Name</th><th className="p-4">Gender</th><th className="p-4">Adm No</th><th className="p-4">Class</th><th className="p-4">School ID</th></tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {filteredStudents.map((s, i) => (
+                      <tr key={i} className="hover:bg-gray-50">
+                        <td className="p-4 font-bold text-gray-800">{s.studentName}</td>
+                        <td className="p-4 text-gray-500">{s.gender || 'N/A'}</td>
+                        <td className="p-4 text-gray-500 font-mono">{s.admissionNumber}</td>
+                        <td className="p-4"><span className="px-2 py-1 bg-blue-100 text-blue-700 rounded text-xs font-bold">{s.classLevel}</span></td>
+                        <td className="p-4 text-gray-600">{s.schoolId}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                 {filteredStudents.length === 0 && <div className="p-8 text-center text-gray-500">No students found matching search.</div>}
+             </div>
+           </div>
+        )}
+
+        {adminTab === 'teachers' && (
+           <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+             <div className="overflow-x-auto">
+                <table className="w-full text-left text-sm">
+                  <thead className="bg-gray-50 border-b border-gray-200 text-gray-600 font-semibold uppercase">
+                    <tr><th className="p-4">Teacher Name</th><th className="p-4">Staff ID</th><th className="p-4">School</th><th className="p-4">Contact</th></tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {filteredTeachers.map((t, i) => (
+                      <tr key={i} className="hover:bg-gray-50">
+                        <td className="p-4 font-bold text-gray-800">{t.teacherName}</td>
+                        <td className="p-4 text-yellow-600 font-mono font-bold">{t.generatedId}</td>
+                        <td className="p-4 text-gray-600">{t.schoolName}</td>
+                        <td className="p-4 text-gray-600">{t.phoneNumber}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {filteredTeachers.length === 0 && <div className="p-8 text-center text-gray-500">No teachers found matching search.</div>}
+             </div>
+           </div>
+        )}
+
+        {adminTab === 'results' && (
+           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+             {filteredResults.map((r, i) => (
+                <div key={i} onClick={() => { setFoundResult(r); setView('view-result'); }} className="p-4 bg-white border border-gray-200 rounded-xl hover:shadow-md cursor-pointer transition-all hover:border-green-300 group">
+                   <div className="flex justify-between items-start mb-2">
+                      <div className="font-bold text-gray-800">{r.studentName}</div>
+                      <span className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded">{r.classLevel}</span>
+                   </div>
+                   <div className="text-xs text-gray-500 space-y-1">
+                      <div>Adm: {r.admissionNumber}</div>
+                      <div>School: {r.schoolId}</div>
+                      <div>{r.term}, {r.year}</div>
+                   </div>
+                </div>
+             ))}
+             {filteredResults.length === 0 && <div className="col-span-full p-8 text-center text-gray-500 bg-white rounded-xl border border-gray-100">No results found matching search.</div>}
+           </div>
+        )}
+
+        {adminTab === 'id_cards' && (
+            <IdCardManager students={allStudents} teachers={allTeachers} />
+        )}
+
+      </div>
+    );
+  };
 
   if (view === 'view-result' && foundResult) {
     return (
@@ -828,13 +1030,16 @@ export default function App() {
             <div className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div><label className="text-xs font-bold text-gray-500">Full Name</label><input type="text" className="w-full p-3 border rounded" onChange={(e) => setRegData({...regData, studentName: e.target.value})} /></div>
-                <div><label className="text-xs font-bold text-gray-500">Admission No</label><input type="text" className="w-full p-3 border rounded" onChange={(e) => setRegData({...regData, admissionNumber: e.target.value})} /></div>
+                <div><label className="text-xs font-bold text-gray-500">Gender</label><select className="w-full p-3 border rounded bg-white" onChange={(e) => setRegData({...regData, gender: e.target.value})}><option value="Male">Male</option><option value="Female">Female</option></select></div>
               </div>
               <div className="grid grid-cols-2 gap-4">
+                <div><label className="text-xs font-bold text-gray-500">Admission No</label><input type="text" className="w-full p-3 border rounded" onChange={(e) => setRegData({...regData, admissionNumber: e.target.value})} /></div>
                 <div><label className="text-xs font-bold text-gray-500">School ID</label><input type="text" className="w-full p-3 border rounded" onChange={(e) => setRegData({...regData, schoolId: e.target.value})} /></div>
-                <div><label className="text-xs font-bold text-gray-500">Current Class</label><select className="w-full p-3 border rounded bg-white" onChange={(e) => setRegData({...regData, classLevel: e.target.value})}>{CLASS_LEVELS.map(c => <option key={c} value={c}>{c}</option>)}</select></div>
               </div>
-              <div><label className="text-xs font-bold text-gray-500">Parent Phone</label><input type="text" className="w-full p-3 border rounded" onChange={(e) => setRegData({...regData, parentPhone: e.target.value})} /></div>
+              <div className="grid grid-cols-2 gap-4">
+                <div><label className="text-xs font-bold text-gray-500">Current Class</label><select className="w-full p-3 border rounded bg-white" onChange={(e) => setRegData({...regData, classLevel: e.target.value})}>{CLASS_LEVELS.map(c => <option key={c} value={c}>{c}</option>)}</select></div>
+                <div><label className="text-xs font-bold text-gray-500">Parent Phone</label><input type="text" className="w-full p-3 border rounded" onChange={(e) => setRegData({...regData, parentPhone: e.target.value})} /></div>
+              </div>
               <div className="flex gap-4 pt-4">
                 <button onClick={() => setView('admin-dashboard')} className="flex-1 py-3 bg-gray-200 rounded text-gray-700 font-bold">Cancel</button>
                 <button onClick={handleRegisterStudent} disabled={loading} className="flex-1 py-3 bg-blue-600 text-white rounded font-bold">{loading ? 'Saving...' : 'Save Student Data'}</button>
@@ -948,53 +1153,7 @@ export default function App() {
           </div>
         )}
 
-        {view === 'super-admin-view' && (
-          <div className="max-w-6xl mx-auto space-y-8 animate-fade-in">
-            <div className="flex justify-between items-center">
-              <h2 className="text-3xl font-bold text-gray-800">Master Database</h2>
-              <button onClick={() => setView('admin-dashboard')} className="px-4 py-2 bg-gray-200 rounded text-gray-800">Close Database</button>
-            </div>
-            <div className="bg-white p-4 rounded-lg shadow-md flex items-center gap-2 mb-4">
-               <Search size={20} className="text-gray-400" />
-               <input type="text" placeholder="Search Schools, Students or Results by Name or ID..." className="w-full outline-none text-gray-700" value={masterSearch} onChange={(e) => setMasterSearch(e.target.value)}/>
-            </div>
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-              <div className="bg-white p-6 rounded-xl shadow">
-                <h3 className="text-xl font-bold text-orange-700 mb-4 flex items-center gap-2"><Building2 /> Registered Schools ({allSchools.filter(s => s.schoolName?.toLowerCase().includes(masterSearch.toLowerCase()) || s.schoolId?.toLowerCase().includes(masterSearch.toLowerCase())).length})</h3>
-                <div className="overflow-y-auto max-h-[500px] space-y-2">
-                  {allSchools.filter(s => s.schoolName?.toLowerCase().includes(masterSearch.toLowerCase()) || s.schoolId?.toLowerCase().includes(masterSearch.toLowerCase())).map((s, i) => (
-                    <div key={i} className="p-3 border rounded hover:bg-gray-50 text-sm">
-                      <div className="flex justify-between font-bold text-gray-800"><span>{s.schoolName}</span><span className="text-gray-500">{s.schoolId}</span></div>
-                      <div className="text-xs text-gray-500 mt-1">Code: <span className="text-red-500">{s.schoolCode}</span> | Phone: {s.schoolPhone}</div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-              <div className="bg-white p-6 rounded-xl shadow">
-                <h3 className="text-xl font-bold text-blue-700 mb-4 flex items-center gap-2"><Users /> Registered Students ({allStudents.filter(s => s.studentName?.toLowerCase().includes(masterSearch.toLowerCase()) || s.admissionNumber?.toLowerCase().includes(masterSearch.toLowerCase())).length})</h3>
-                <div className="overflow-y-auto max-h-[500px] space-y-2">
-                  {allStudents.filter(s => s.studentName?.toLowerCase().includes(masterSearch.toLowerCase()) || s.admissionNumber?.toLowerCase().includes(masterSearch.toLowerCase())).map((s, i) => (
-                    <div key={i} className="p-3 border rounded hover:bg-gray-50 text-sm">
-                      <div className="flex justify-between font-bold text-gray-800"><span>{s.studentName}</span><span className="text-blue-600">{s.classLevel}</span></div>
-                      <div className="text-xs text-gray-500 mt-1">School ID: {s.schoolId} | Adm No: {s.admissionNumber}</div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-              <div className="bg-white p-6 rounded-xl shadow">
-                <h3 className="text-xl font-bold text-green-700 mb-4 flex items-center gap-2"><FileText /> Uploaded Results ({allResults.filter(r => r.studentName?.toLowerCase().includes(masterSearch.toLowerCase()) || r.admissionNumber?.toLowerCase().includes(masterSearch.toLowerCase())).length})</h3>
-                <div className="overflow-y-auto max-h-[500px] space-y-2">
-                  {allResults.filter(r => r.studentName?.toLowerCase().includes(masterSearch.toLowerCase()) || r.admissionNumber?.toLowerCase().includes(masterSearch.toLowerCase())).map((r, i) => (
-                    <div key={i} onClick={() => { setFoundResult(r); setView('view-result'); }} className="p-3 border rounded hover:bg-green-50 text-sm cursor-pointer transition-colors border-l-4 border-l-green-500">
-                      <div className="flex justify-between font-bold text-gray-800"><span>{r.studentName}</span><span className="text-green-600">{r.classLevel}</span></div>
-                      <div className="text-xs text-gray-500 mt-1">School ID: {r.schoolId} | Adm No: {r.admissionNumber} | Term: {r.term}</div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
+        {view === 'super-admin-view' && renderSuperAdminView()}
       </main>
     </div>
   );

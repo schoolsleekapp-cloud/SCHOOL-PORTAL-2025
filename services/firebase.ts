@@ -1,5 +1,5 @@
 import { initializeApp } from 'firebase/app';
-import { getFirestore } from 'firebase/firestore';
+import { initializeFirestore } from 'firebase/firestore';
 
 declare global {
   var __firebase_config: string | undefined;
@@ -34,4 +34,9 @@ try {
 
 // Initialize Firebase
 const app = initializeApp(firebaseConfig);
-export const db = getFirestore(app);
+
+// Initialize Firestore with experimentalForceLongPolling to prevent "Backend didn't respond within 10 seconds" errors
+// This forces the client to use HTTP long-polling instead of WebSockets, which is more stable in restricted networks.
+export const db = initializeFirestore(app, {
+  experimentalForceLongPolling: true,
+});

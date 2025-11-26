@@ -1,3 +1,4 @@
+
 import React, { useEffect, useState, useRef } from 'react';
 import { X, Camera, AlertCircle } from 'lucide-react';
 
@@ -26,59 +27,67 @@ const QrScannerModal: React.FC<Props> = ({ onScanSuccess, onClose }) => {
       return;
     }
 
-    // 2. Initialize Scanner
-    // We use a small timeout to ensure the DOM element is ready
-    const timerId = setTimeout(() => {
+    // 2. Explicitly request permission first to catch NotAllowedError
+    const requestPermissionAndStart = async () => {
       try {
-        if (scannerRef.current) {
-            // Already initialized
-            return;
-        }
-
-        const scanner = new Html5QrcodeScanner(
-          scannerContainerId,
-          { 
-            fps: 10, 
-            qrbox: { width: 250, height: 250 },
-            aspectRatio: 1.0,
-            showTorchButtonIfSupported: true,
-            // Optimization: Only scan for QR Codes, ignore barcodes
-            formatsToSupport: [ Html5QrcodeSupportedFormats.QR_CODE ],
-            // Optimization: Use native BarcodeDetector if available
-            experimentalFeatures: {
-                useBarCodeDetectorIfSupported: true
-            }
-          },
-          /* verbose= */ false
-        );
+        await navigator.mediaDevices.getUserMedia({ video: true });
         
-        scannerRef.current = scanner;
-
-        scanner.render(
-          (decodedText: string) => {
-            // Success Callback
-            onScanSuccess(decodedText);
-            // We rely on the parent to unmount us (calling cleanup), 
-            // but we can try to pause/clear here if needed.
-          }, 
-          (errorMessage: any) => {
-            // Parse error, mostly ignore unless specific permission issues arise repeatedly
-            if (typeof errorMessage === 'string' && 
-               (errorMessage.includes("permission") || errorMessage.includes("AccessDenied"))) {
-                setPermissionError("Camera access was denied. Please allow camera permissions in your browser settings.");
-            }
-          }
-        );
-
+        // Permission granted, start scanner
+        startScanner();
       } catch (err: any) {
-        console.error("Scanner Init Error:", err);
-        setPermissionError("Failed to start camera. Please ensure no other app is using it.");
+        console.error("Camera Permission Error:", err);
+        if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+           setPermissionError("Camera access was denied. Please allow camera permissions in your browser settings.");
+        } else {
+           setPermissionError("Failed to access camera: " + (err.message || "Unknown error"));
+        }
       }
-    }, 100);
+    };
+
+    const startScanner = () => {
+        const timerId = setTimeout(() => {
+            try {
+              if (scannerRef.current) return;
+      
+              const scanner = new Html5QrcodeScanner(
+                scannerContainerId,
+                { 
+                  fps: 10, 
+                  qrbox: { width: 250, height: 250 },
+                  aspectRatio: 1.0,
+                  showTorchButtonIfSupported: true,
+                  formatsToSupport: [ Html5QrcodeSupportedFormats.QR_CODE ],
+                  experimentalFeatures: {
+                      useBarCodeDetectorIfSupported: true
+                  }
+                },
+                /* verbose= */ false
+              );
+              
+              scannerRef.current = scanner;
+      
+              scanner.render(
+                (decodedText: string) => {
+                  onScanSuccess(decodedText);
+                }, 
+                (errorMessage: any) => {
+                  // Ignore parse errors, only care about initialization errors handled above
+                }
+              );
+      
+            } catch (err: any) {
+              console.error("Scanner Init Error:", err);
+              setPermissionError("Failed to initialize scanner.");
+            }
+          }, 100);
+
+          return () => clearTimeout(timerId);
+    };
+
+    requestPermissionAndStart();
 
     // 3. Cleanup function
     return () => {
-      clearTimeout(timerId);
       if (scannerRef.current) {
         try {
           scannerRef.current.clear().catch((error: any) => {
@@ -95,7 +104,6 @@ const QrScannerModal: React.FC<Props> = ({ onScanSuccess, onClose }) => {
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/90 backdrop-blur-sm p-4 animate-fade-in">
       <div className="bg-white rounded-2xl w-full max-w-sm overflow-hidden relative shadow-2xl">
-        {/* Header */}
         <div className="p-4 bg-gray-900 text-white flex justify-between items-center">
              <div className="flex items-center gap-2 font-bold">
                 <Camera size={18} />
@@ -106,7 +114,6 @@ const QrScannerModal: React.FC<Props> = ({ onScanSuccess, onClose }) => {
              </button>
         </div>
 
-        {/* Body */}
         <div className="p-4 bg-gray-100 min-h-[300px] flex flex-col items-center justify-center">
              {permissionError ? (
                <div className="text-center p-4">
