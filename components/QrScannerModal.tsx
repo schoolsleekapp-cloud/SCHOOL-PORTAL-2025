@@ -30,7 +30,10 @@ const QrScannerModal: React.FC<Props> = ({ onScanSuccess, onClose }) => {
     // 2. Explicitly request permission first to catch NotAllowedError
     const requestPermissionAndStart = async () => {
       try {
-        await navigator.mediaDevices.getUserMedia({ video: true });
+        // Request "environment" (rear) camera specifically for better mobile UX
+        await navigator.mediaDevices.getUserMedia({ 
+            video: { facingMode: "environment" } 
+        });
         
         // Permission granted, start scanner
         startScanner();
@@ -39,7 +42,13 @@ const QrScannerModal: React.FC<Props> = ({ onScanSuccess, onClose }) => {
         if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
            setPermissionError("Camera access was denied. Please allow camera permissions in your browser settings.");
         } else {
-           setPermissionError("Failed to access camera: " + (err.message || "Unknown error"));
+           // Fallback attempt: Try basic video request if constraints failed
+           try {
+             await navigator.mediaDevices.getUserMedia({ video: true });
+             startScanner();
+           } catch (retryErr: any) {
+             setPermissionError("Failed to access camera: " + (retryErr.message || "Unknown error"));
+           }
         }
       }
     };

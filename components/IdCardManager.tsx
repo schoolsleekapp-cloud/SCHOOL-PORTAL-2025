@@ -43,11 +43,13 @@ const IdCardManager: React.FC<IdCardManagerProps> = ({ students, teachers }) => 
     if (!window.html2pdf || !printRef.current) return;
     const element = printRef.current;
     
+    // A4 is 210mm x 297mm.
+    // We target a specific margin to align the grid perfectly.
     const opt = {
-      margin: 5, // 5mm margin for maximum space
+      margin: 0, // We control margins inside the container
       filename: `ID_Card_Directory_${new Date().toISOString().split('T')[0]}.pdf`,
-      image: { type: 'jpeg', quality: 0.98 },
-      html2canvas: { scale: 2, useCORS: true },
+      image: { type: 'jpeg', quality: 1.0 }, // Max quality for QR codes
+      html2canvas: { scale: 3, useCORS: true }, // Higher scale for crisp text
       jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
     };
     window.html2pdf().set(opt).from(element).save();
@@ -140,17 +142,18 @@ const IdCardManager: React.FC<IdCardManagerProps> = ({ students, teachers }) => 
         <div ref={printRef}>
           {pages.map((pageItems, pageIndex) => (
              <div key={pageIndex} style={{
-                width: '200mm', // A4 width minus margins (210 - 5 - 5)
-                height: '286mm', // A4 height minus margins (297 - 5 - 5, mostly)
+                width: '210mm', // Full A4 Width
+                height: '297mm', // Full A4 Height
                 display: 'grid',
                 gridTemplateColumns: 'repeat(2, 85.6mm)', // Precise Card Width for CR80
                 gridTemplateRows: 'repeat(5, 54mm)', // Precise Card Height for CR80
                 columnGap: '10mm',
-                rowGap: '4mm', // Tuned to fit vertical space within 286mm
-                justifyContent: 'center',
-                alignContent: 'start',
+                rowGap: '4mm', // Tuned to fit vertical space within margins
+                paddingTop: '6mm', // Top Margin
+                paddingLeft: '14.4mm', // Left Margin to center: (210 - (85.6*2 + 10)) / 2 = 14.4
+                backgroundColor: 'white',
                 pageBreakAfter: 'always',
-                backgroundColor: 'white'
+                boxSizing: 'border-box'
              }}>
                 {pageItems.map((item, idx) => (
                   <div key={idx} style={{
@@ -163,36 +166,38 @@ const IdCardManager: React.FC<IdCardManagerProps> = ({ students, teachers }) => 
                      color: 'white',
                      fontFamily: 'sans-serif',
                      display: 'flex',
-                     flexDirection: 'row', // Horizontal layout: Text Left, QR Right
+                     flexDirection: 'row', // Horizontal layout
                      alignItems: 'center',
-                     padding: '4mm',
-                     boxSizing: 'border-box'
+                     padding: '3mm',
+                     boxSizing: 'border-box',
+                     gap: '3mm', // Gap between Text Block and QR Block
+                     border: '1px solid #ddd' // Light border for cut lines
                   }}>
                      {/* Text Info Side */}
-                     <div style={{ flex: 1, paddingRight: '3mm', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', height: '100%' }}>
+                     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', height: '100%', overflow: 'hidden' }}>
                         {/* Header: Logo & School */}
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                           <div style={{ width: '22px', height: '22px', background: 'white', borderRadius: '50%', display: 'flex', justifyContent: 'center', alignItems: 'center', overflow: 'hidden' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px' }}>
+                           <div style={{ width: '20px', height: '20px', background: 'white', borderRadius: '50%', display: 'flex', justifyContent: 'center', alignItems: 'center', overflow: 'hidden', flexShrink: 0 }}>
                               {item.schoolLogo ? <img src={item.schoolLogo} style={{ width: '100%', height: '100%', objectFit: 'contain' }} alt="logo"/> : <div style={{fontSize:'6px', color:'#000'}}>LOGO</div>}
                            </div>
                            <div style={{ overflow: 'hidden' }}>
-                              <div style={{ fontSize: '7px', fontWeight: 'bold', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>{item.schoolName?.substring(0, 25)}</div>
-                              <div style={{ fontSize: '5px', letterSpacing: '0.5px', opacity: 0.8 }}>{item.type === 'student' ? 'OFFICIAL STUDENT ID' : 'STAFF IDENTITY CARD'}</div>
+                              <div style={{ fontSize: '10px', fontWeight: 'bold', textTransform: 'uppercase', whiteSpace: 'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{item.schoolName?.substring(0, 20)}</div>
+                              <div style={{ fontSize: '6px', letterSpacing: '0.5px', opacity: 0.9, color: '#fbbf24' }}>{item.type === 'student' ? 'OFFICIAL STUDENT ID' : 'STAFF IDENTITY CARD'}</div>
                            </div>
                         </div>
 
                         {/* Details */}
                         <div>
-                           <div style={{ fontSize: '9px', fontWeight: 'bold', lineHeight: '1.2' }}>{item.name}</div>
-                           <div style={{ display: 'flex', gap: '10px', marginTop: '4px' }}>
-                              <div>
-                                 <div style={{ fontSize: '5px', textTransform: 'uppercase', opacity: 0.7 }}>ID Number</div>
-                                 <div style={{ fontSize: '8px', fontFamily: 'monospace', color: '#fcd34d', fontWeight: 'bold' }}>{item.id}</div>
+                           <div style={{ fontSize: '14px', fontWeight: '900', lineHeight: '1.1', marginBottom: '6px', whiteSpace: 'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{item.name}</div>
+                           <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                 <span style={{ fontSize: '8px', textTransform: 'uppercase', opacity: 0.7, width: '40px' }}>ID No:</span>
+                                 <span style={{ fontSize: '11px', fontFamily: 'monospace', color: '#fbbf24', fontWeight: 'bold' }}>{item.id}</span>
                               </div>
                               {item.type === 'student' && (
-                                <div>
-                                   <div style={{ fontSize: '5px', textTransform: 'uppercase', opacity: 0.7 }}>Gender</div>
-                                   <div style={{ fontSize: '8px' }}>{(item as StudentData).gender}</div>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                   <span style={{ fontSize: '8px', textTransform: 'uppercase', opacity: 0.7, width: '40px' }}>Gender:</span>
+                                   <span style={{ fontSize: '10px', fontWeight: 'bold' }}>{(item as StudentData).gender}</span>
                                 </div>
                               )}
                            </div>
@@ -200,12 +205,13 @@ const IdCardManager: React.FC<IdCardManagerProps> = ({ students, teachers }) => 
                      </div>
 
                      {/* QR Code Side - Right Aligned with White Background */}
+                     {/* Uses specific styles to match standard QR appearance */}
                      <div style={{
                         width: '32mm',
                         height: '32mm',
                         backgroundColor: 'white', 
                         borderRadius: '4px',
-                        padding: '2px',
+                        padding: '3px', // Quiet zone
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
@@ -214,9 +220,11 @@ const IdCardManager: React.FC<IdCardManagerProps> = ({ students, teachers }) => 
                         <QRCode
                            value={JSON.stringify({ id: item.id, nm: item.name, sc: item.schoolId, ad: (item as any).admissionNumber || 'T' })}
                            size={256}
-                           level="L"
+                           level="M" // Medium error correction for standard density
                            style={{ height: "auto", maxWidth: "100%", width: "100%" }}
                            viewBox={`0 0 256 256`}
+                           fgColor="#000000"
+                           bgColor="#FFFFFF"
                         />
                      </div>
                   </div>
