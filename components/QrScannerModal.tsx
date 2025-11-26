@@ -1,6 +1,6 @@
 
 import React, { useEffect, useState, useRef } from 'react';
-import { X, Camera, AlertCircle } from 'lucide-react';
+import { X, Camera, AlertCircle, ExternalLink } from 'lucide-react';
 
 interface Props {
   onScanSuccess: (decodedText: string) => void;
@@ -9,10 +9,15 @@ interface Props {
 
 const QrScannerModal: React.FC<Props> = ({ onScanSuccess, onClose }) => {
   const [permissionError, setPermissionError] = useState<string | null>(null);
+  const [isEmbedded, setIsEmbedded] = useState(false);
   const scannerRef = useRef<any>(null);
   const scannerContainerId = "html5qr-code-full-region";
 
   useEffect(() => {
+    // Check if the app is running inside an iframe (e.g., Google Sites)
+    const inIframe = window.self !== window.top;
+    setIsEmbedded(inIframe);
+
     // 1. Check if browser supports media devices
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
       setPermissionError("Your browser does not support camera access or it is blocked.");
@@ -39,17 +44,22 @@ const QrScannerModal: React.FC<Props> = ({ onScanSuccess, onClose }) => {
         startScanner();
       } catch (err: any) {
         console.error("Camera Permission Error:", err);
+        
+        let errorMessage = "Failed to access camera.";
+        
         if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
-           setPermissionError("Camera access was denied. Please allow camera permissions in your browser settings.");
-        } else {
-           // Fallback attempt: Try basic video request if constraints failed
-           try {
-             await navigator.mediaDevices.getUserMedia({ video: true });
-             startScanner();
-           } catch (retryErr: any) {
-             setPermissionError("Failed to access camera: " + (retryErr.message || "Unknown error"));
+           if (inIframe) {
+             errorMessage = "Camera is blocked because the app is embedded. Please open in a new tab.";
+           } else {
+             errorMessage = "Camera access was denied. Please allow permissions in settings.";
            }
+        } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
+           errorMessage = "No camera device found.";
+        } else {
+           errorMessage = err.message || "Unknown camera error.";
         }
+        
+        setPermissionError(errorMessage);
       }
     };
 
@@ -110,6 +120,10 @@ const QrScannerModal: React.FC<Props> = ({ onScanSuccess, onClose }) => {
     };
   }, [onScanSuccess]);
 
+  const handleOpenNewTab = () => {
+    window.open(window.location.href, '_blank');
+  };
+
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/90 backdrop-blur-sm p-4 animate-fade-in">
       <div className="bg-white rounded-2xl w-full max-w-sm overflow-hidden relative shadow-2xl">
@@ -128,14 +142,25 @@ const QrScannerModal: React.FC<Props> = ({ onScanSuccess, onClose }) => {
                <div className="text-center p-4">
                   <AlertCircle size={48} className="text-red-500 mx-auto mb-2" />
                   <p className="text-red-600 font-bold mb-1">Camera Error</p>
-                  <p className="text-sm text-gray-600">{permissionError}</p>
-                  <button onClick={() => window.location.reload()} className="mt-4 px-4 py-2 bg-gray-200 rounded text-sm font-semibold hover:bg-gray-300">
-                    Reload Page
-                  </button>
+                  <p className="text-sm text-gray-600 mb-4">{permissionError}</p>
+                  
+                  <div className="flex flex-col gap-2 w-full">
+                    {isEmbedded && (
+                        <button 
+                            onClick={handleOpenNewTab} 
+                            className="w-full px-4 py-3 bg-blue-600 text-white rounded-lg text-sm font-bold hover:bg-blue-700 flex items-center justify-center gap-2 shadow-md transition-all"
+                        >
+                            <ExternalLink size={16} /> Open App in New Tab
+                        </button>
+                    )}
+                    <button onClick={() => window.location.reload()} className="w-full px-4 py-3 bg-gray-200 text-gray-800 rounded-lg text-sm font-semibold hover:bg-gray-300 transition-all">
+                        Reload Page
+                    </button>
+                  </div>
                </div>
              ) : (
                <>
-                 <div id={scannerContainerId} className="w-full rounded-lg overflow-hidden bg-white"></div>
+                 <div id={scannerContainerId} className="w-full rounded-lg overflow-hidden bg-white shadow-inner"></div>
                  <p className="text-center text-xs text-gray-500 mt-4">
                     Position the student ID QR code within the frame.
                  </p>
