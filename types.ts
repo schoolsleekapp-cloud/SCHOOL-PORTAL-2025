@@ -21,6 +21,20 @@ export interface Attendance {
   total: number;
 }
 
+export interface AttendanceLog {
+  studentName: string;
+  admissionNumber: string;
+  schoolId: string;
+  date: string; // YYYY-MM-DD
+  clockInTime?: string;
+  clockOutTime?: string;
+  timestamp: string;
+  dropOffGuardian?: string;
+  dropOffPhone?: string;
+  pickUpGuardian?: string;
+  pickUpPhone?: string;
+}
+
 export interface ResultData {
   id?: string;
   schoolName: string;
@@ -87,4 +101,4 @@ export interface TeacherData {
   userId?: string;
 }
 
-export type ViewState = 'home' | 'create' | 'view-result' | 'admin-dashboard' | 'register-student' | 'register-school' | 'register-teacher' | 'super-admin-view' | 'admin-search';
+export type ViewState = 'home' | 'create' | 'view-result' | 'admin-dashboard' | 'register-student' | 'register-school' | 'register-teacher' | 'super-admin-view' | 'admin-search' | 'attendance';

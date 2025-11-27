@@ -4,9 +4,9 @@ import {
   School, FileText, Search, ShieldAlert, Edit, Users, Building2, 
   Database, Plus, Trash2, Trophy, Activity, 
   Sparkles, Loader2, Eye, ArrowLeft, RefreshCw, KeyRound, CheckCircle, Palette, Phone, Mail, MapPin, Clock, Star, UserCog,
-  Upload, QrCode, GraduationCap, Lock, House, LayoutDashboard, UserCheck, CreditCard
+  Upload, QrCode, GraduationCap, Lock, House, LayoutDashboard, UserCheck, CreditCard, LogIn, LogOut, CalendarCheck, Calendar, ChevronLeft, ChevronRight, User
 } from 'lucide-react';
-import { collection, addDoc, query, where, getDocs, doc, updateDoc } from 'firebase/firestore';
+import { collection, addDoc, query, where, getDocs, doc, updateDoc, orderBy } from 'firebase/firestore';
 
 import { db } from './services/firebase';
 import { generateGeminiRemarks } from './services/gemini';
@@ -15,7 +15,7 @@ import StudentIdCard from './components/StudentIdCard';
 import TeacherIdCard from './components/TeacherIdCard';
 import QrScannerModal from './components/QrScannerModal';
 import IdCardManager from './components/IdCardManager';
-import { ResultData, Subject, SchoolData, StudentData, ViewState, TeacherData } from './types';
+import { ResultData, Subject, SchoolData, StudentData, ViewState, TeacherData, AttendanceLog } from './types';
 import { 
   THEME_COLORS, AFFECTIVE_TRAITS, PSYCHOMOTOR_SKILLS, 
   ALL_NIGERIAN_SUBJECTS, CLASS_LEVELS, TEACHER_SECRET_CODE, SUPER_ADMIN_KEY, APP_ID 
@@ -48,7 +48,7 @@ export default function App() {
     studentName: '', admissionNumber: '', classLevel: 'SSS 1', term: 'First Term', session: '2024/2025',
     year: new Date().getFullYear().toString(), position: '', teacherId: '', accessCode: '1234', 
     subjects: [], principalRemark: '', teacherRemark: '',
-    attendance: { present: 0, total: 0 },
+    attendance: { present: 0, total: 60 }, // Default total to 60 days
     affective: AFFECTIVE_TRAITS.map(t => ({ name: t, rating: 3 })),
     psychomotor: PSYCHOMOTOR_SKILLS.map(t => ({ name: t, rating: 3 }))
   };
@@ -67,7 +67,20 @@ export default function App() {
 
   // Scanner State
   const [showScanner, setShowScanner] = useState(false);
-  const [scannerContext, setScannerContext] = useState<'create' | 'check' | 'edit'>('create');
+  const [scannerContext, setScannerContext] = useState<'create' | 'check' | 'edit' | 'attendance_in' | 'attendance_out' | 'check_attendance'>('create');
+  
+  // Attendance State
+  const [attendanceStatus, setAttendanceStatus] = useState<{name: string, time: string, type: 'in' | 'out'} | null>(null);
+  const [attendanceReport, setAttendanceReport] = useState<{logs: AttendanceLog[], student: {name: string, id: string}} | null>(null);
+  const [reportMonth, setReportMonth] = useState(new Date());
+
+  // Attendance Confirmation Modal State
+  const [pendingAttendance, setPendingAttendance] = useState<{
+      student: StudentData,
+      type: 'in' | 'out',
+      schoolId: string
+  } | null>(null);
+  const [guardianInfo, setGuardianInfo] = useState({ name: '', phone: '' });
 
   const calculateGrade = (total: number, level: string) => {
     let system = [];
@@ -112,6 +125,91 @@ export default function App() {
     setGeneratedTeacher(null);
     setShowTeacherIdCard(false);
     setShowScanner(false);
+    setAttendanceStatus(null);
+    setAttendanceReport(null);
+    setPendingAttendance(null);
+    setGuardianInfo({ name: '', phone: '' });
+    setReportMonth(new Date());
+  };
+
+  const handleConfirmAttendance = async () => {
+      if (!pendingAttendance) return;
+      if (!guardianInfo.name || !guardianInfo.phone) {
+          setError("Guardian Name and Phone are required.");
+          return;
+      }
+
+      setLoading(true);
+      const { student, type, schoolId } = pendingAttendance;
+      const today = new Date().toISOString().split('T')[0];
+      const now = new Date().toLocaleTimeString();
+
+      try {
+           const qAtt = query(collection(db, 'Attendance Data'), 
+              where("schoolId", "==", schoolId),
+              where("admissionNumber", "==", student.admissionNumber),
+              where("date", "==", today)
+          );
+          const attSnap = await getDocs(qAtt);
+
+          if (type === 'in') {
+              if (!attSnap.empty) {
+                  // Already exists, check if clocked in
+                  const rec = attSnap.docs[0].data() as AttendanceLog;
+                  if (rec.clockInTime) {
+                      setError(`${student.studentName} already clocked in at ${rec.clockInTime}.`);
+                  } else {
+                      // Update existing record (rare case, but possible if manually messed with)
+                       await updateDoc(attSnap.docs[0].ref, { 
+                          clockInTime: now,
+                          dropOffGuardian: guardianInfo.name,
+                          dropOffPhone: guardianInfo.phone
+                       });
+                       setSuccessMsg(`${student.studentName} Clocked IN at ${now}`);
+                       setAttendanceStatus({ name: student.studentName, time: now, type: 'in' });
+                  }
+              } else {
+                  // New Record
+                  await addDoc(collection(db, 'Attendance Data'), {
+                      studentName: student.studentName,
+                      admissionNumber: student.admissionNumber,
+                      schoolId: schoolId,
+                      date: today,
+                      clockInTime: now,
+                      dropOffGuardian: guardianInfo.name,
+                      dropOffPhone: guardianInfo.phone,
+                      timestamp: new Date().toISOString()
+                  });
+                  setSuccessMsg(`${student.studentName} Clocked IN at ${now}`);
+                  setAttendanceStatus({ name: student.studentName, time: now, type: 'in' });
+              }
+          } else {
+              // Clock Out
+              if (attSnap.empty) {
+                  setError(`${student.studentName} has not clocked in today! Cannot clock out.`);
+              } else {
+                  const rec = attSnap.docs[0].data() as AttendanceLog;
+                  if (rec.clockOutTime) {
+                       setError(`${student.studentName} already clocked out at ${rec.clockOutTime}.`);
+                  } else {
+                      await updateDoc(attSnap.docs[0].ref, { 
+                          clockOutTime: now,
+                          pickUpGuardian: guardianInfo.name,
+                          pickUpPhone: guardianInfo.phone
+                       });
+                      setSuccessMsg(`${student.studentName} Clocked OUT at ${now}`);
+                      setAttendanceStatus({ name: student.studentName, time: now, type: 'out' });
+                  }
+              }
+          }
+      } catch (err: any) {
+          console.error(err);
+          setError("Attendance submission failed.");
+      } finally {
+          setLoading(false);
+          setPendingAttendance(null); // Close modal
+          setGuardianInfo({ name: '', phone: '' });
+      }
   };
 
   const handleScanSuccess = async (decodedText: string) => {
@@ -124,6 +222,69 @@ export default function App() {
             return;
         }
 
+        // --- ATTENDANCE FLOW (Modified for Confirmation) ---
+        if (scannerContext === 'attendance_in' || scannerContext === 'attendance_out') {
+            setLoading(true);
+            setSuccessMsg("Scanning... verifying student.");
+            
+            try {
+                // 1. Fetch Student Data explicitly from DB to show in confirmation
+                const qStudent = query(collection(db, 'Student Data'), 
+                    where("schoolId", "==", data.sc), 
+                    where("admissionNumber", "==", data.ad)
+                );
+                const studentSnap = await getDocs(qStudent);
+                
+                if (!studentSnap.empty) {
+                    const studentData = studentSnap.docs[0].data() as StudentData;
+                    // Open Confirmation Modal
+                    setPendingAttendance({
+                        student: studentData,
+                        type: scannerContext === 'attendance_in' ? 'in' : 'out',
+                        schoolId: data.sc
+                    });
+                    setSuccessMsg(""); // Clear scanning msg
+                } else {
+                    setError("Student record not found. Cannot mark attendance.");
+                }
+            } catch (err) {
+                console.error(err);
+                setError("Error verifying student.");
+            } finally {
+                setLoading(false);
+            }
+            return;
+        }
+
+        // --- CHECK REPORT FLOW ---
+        if (scannerContext === 'check_attendance') {
+            setLoading(true);
+            setSuccessMsg("Fetching attendance history...");
+            try {
+                const q = query(collection(db, 'Attendance Data'), 
+                    where("schoolId", "==", data.sc),
+                    where("admissionNumber", "==", data.ad)
+                );
+                const querySnapshot = await getDocs(q);
+                const logs = querySnapshot.docs.map(doc => doc.data() as AttendanceLog);
+                
+                let studentName = data.nm;
+                if(!studentName && logs.length > 0) studentName = logs[0].studentName;
+                
+                setAttendanceReport({
+                    logs,
+                    student: { name: studentName || data.ad, id: data.ad }
+                });
+            } catch (e) {
+                console.error(e);
+                setError("Failed to fetch attendance records.");
+            } finally {
+                setLoading(false);
+            }
+            return;
+        }
+
+        // --- CREATE RESULT FLOW ---
         if (scannerContext === 'create') {
             setSuccessMsg("QR Code Scanned! Fetching student details...");
             setFormData(prev => ({ 
@@ -153,7 +314,7 @@ export default function App() {
                 }));
             }
 
-            // 2. Fetch Student
+            // 2. Fetch Student Profile
             const qStudent = query(collection(db, 'Student Data'), 
                 where("schoolId", "==", data.sc), 
                 where("admissionNumber", "==", data.ad)
@@ -170,6 +331,26 @@ export default function App() {
             } else {
                 setSuccessMsg("School data loaded. Student record not found in DB, but IDs filled.");
             }
+
+            // 3. FETCH ATTENDANCE DATA to Auto-Fill Result Sheet
+            const qAtt = query(collection(db, 'Attendance Data'),
+                where("schoolId", "==", data.sc),
+                where("admissionNumber", "==", data.ad)
+            );
+            const attSnap = await getDocs(qAtt);
+            const daysPresent = attSnap.size; // Count total records for this student
+            
+            setFormData(prev => ({
+                ...prev,
+                attendance: {
+                    ...prev.attendance,
+                    present: daysPresent
+                }
+            }));
+            if(daysPresent > 0) {
+                setSuccessMsg(prev => prev + ` Attendance Records Found: ${daysPresent} days.`);
+            }
+
             setLoading(false);
 
         } else if (scannerContext === 'check') {
@@ -200,6 +381,8 @@ export default function App() {
         setError("Failed to parse QR Code data. Is this a valid Student ID?");
     }
   };
+
+  // ... (Keep existing handle functions: handleAutoFillSchool, handleAutoFillStudent, handleLogoUpload, handleSubjectChange, handleAddSubject, handleRemoveSubject, loadPresetSubjects, handleGenerateRemarks, handlePublish, handleRegisterStudent, handleRegisterTeacher, handleRegisterSchool, handleCheckResult, handleAdminLookup, handleSuperAdminAccess)
 
   const handleAutoFillSchool = async () => {
     if (!formData.schoolId) return;
@@ -265,7 +448,6 @@ export default function App() {
 
     if (field === 'selectedSubject') {
       subject.selectedSubject = value as string;
-      // If Others is selected, clear name to let user type. Otherwise set to value.
       subject.name = value === 'Others' ? '' : value as string;
     } else if (field === 'name') {
       subject.name = value as string;
@@ -274,27 +456,21 @@ export default function App() {
     }
     
     if (['ca1', 'ca2', 'exam'].includes(field as string) || field === 'selectedSubject') {
-      // Treat empty string as 0 for validation/calculation
-      const ca1Val = Number(subject.ca1) || 0;
-      const ca2Val = Number(subject.ca2) || 0;
-      const examVal = Number(subject.exam) || 0;
-
-      if (ca1Val > 20) subject.ca1 = 20;
-      if (ca2Val > 20) subject.ca2 = 20;
-      if (examVal > 60) subject.exam = 60;
-
-      // Recalculate totals
-      subject.total = (Number(subject.ca1) || 0) + (Number(subject.ca2) || 0) + (Number(subject.exam) || 0);
-      const gradeInfo = calculateGrade(subject.total, formData.classLevel);
-      subject.grade = gradeInfo.grade;
-      subject.remark = gradeInfo.remark;
-    }
+        const safeTotal = 
+            (subject.ca1 === '' ? 0 : Number(subject.ca1)) + 
+            (subject.ca2 === '' ? 0 : Number(subject.ca2)) + 
+            (subject.exam === '' ? 0 : Number(subject.exam));
+  
+        subject.total = safeTotal;
+        const gradeInfo = calculateGrade(subject.total, formData.classLevel);
+        subject.grade = gradeInfo.grade;
+        subject.remark = gradeInfo.remark;
+      }
     newSubjects[index] = subject;
     setFormData({ ...formData, subjects: newSubjects });
   };
 
   const handleAddSubject = () => {
-    // Initialize scores as empty strings to avoid pre-filled "0"
     setFormData(prev => ({ 
         ...prev, 
         subjects: [
@@ -335,15 +511,12 @@ export default function App() {
   const handlePublish = async () => {
     setLoading(true);
     try {
-      // 1. Validate Teacher ID
       const teacherCode = formData.teacherId.trim();
       if (!teacherCode) {
           setError("Teacher ID is required to publish results.");
           setLoading(false);
           return;
       }
-
-      // Allow Master Admin Bypass
       if (teacherCode !== TEACHER_SECRET_CODE) {
           const qTeacher = query(collection(db, 'Teacher Data'), where("generatedId", "==", teacherCode));
           const teacherSnap = await getDocs(qTeacher);
@@ -375,28 +548,21 @@ export default function App() {
         setSuccessMsg("Result Published Successfully!");
       }
       
-      // Don't redirect immediately. Set published state to show download buttons.
       setIsPublished(true);
       window.scrollTo(0, document.body.scrollHeight);
       
     } catch (err: any) { 
       console.error("Publish Error:", err);
-      if (err.code === 'permission-denied') {
-        setError("Database Permission Denied. Check Firebase Console > Firestore > Rules.");
-      } else {
-        setError("Failed to save. Ensure you have internet access."); 
-      }
+      setError("Failed to save. Ensure you have internet access."); 
     } finally { setLoading(false); }
   };
 
-  // --- DB Operations ---
   const handleRegisterStudent = async () => {
     if (!regData.studentName || !regData.admissionNumber || !regData.schoolId) { setError("Name, Admission Number, and School ID are required."); return; }
     setLoading(true);
     setError('');
 
     try {
-      // 1. Fetch School Data to get Logo and Name for the ID Card
       const q = query(collection(db, 'School Data'), where("schoolId", "==", regData.schoolId.trim()));
       const querySnapshot = await getDocs(q);
       
@@ -408,8 +574,6 @@ export default function App() {
       const schoolData = querySnapshot.docs[0].data() as SchoolData;
       const schoolName = schoolData.schoolName || "";
       const schoolLogo = schoolData.schoolLogo || "";
-
-      // 2. Generate Unique Student ID
       const uniqueId = Math.random().toString(36).substring(2, 10).toUpperCase();
 
       const studentPayload: StudentData = {
@@ -427,11 +591,9 @@ export default function App() {
       };
 
       await addDoc(collection(db, 'Student Data'), studentPayload);
-      
       setGeneratedStudent(studentPayload);
       setSuccessMsg("Student Registered Successfully!");
       setShowIdCard(true); 
-
     } catch(err: any) { 
       console.error("Student Registration Error:", err);
       setError("Failed to register student."); 
@@ -445,7 +607,6 @@ export default function App() {
       }
       setLoading(true);
       try {
-          // 1. Verify School Exists
           const q = query(collection(db, 'School Data'), where("schoolId", "==", regData.schoolId.trim()));
           const schoolSnap = await getDocs(q);
           if (schoolSnap.empty) {
@@ -453,8 +614,6 @@ export default function App() {
               return;
           }
           const schoolData = schoolSnap.docs[0].data() as SchoolData;
-
-          // 2. Generate Teacher ID (TCH- + Random)
           const teacherId = "TCH-" + Math.floor(1000 + Math.random() * 9000);
 
           const teacherPayload: TeacherData = {
@@ -473,7 +632,6 @@ export default function App() {
           setGeneratedTeacher(teacherPayload);
           setSuccessMsg("Teacher Registered Successfully!");
           setShowTeacherIdCard(true);
-
       } catch (err: any) {
           console.error("Teacher Reg Error:", err);
           setError("Failed to register teacher.");
@@ -510,11 +668,7 @@ export default function App() {
         setSuccessMsg("Result retrieved successfully.");
       } else { setError("No result found."); }
     } catch (err: any) {
-      if (err.code === 'permission-denied') {
-        setError("Database Permission Denied. Check Firebase Console Rules.");
-      } else {
         setError("Error retrieving result.");
-      }
     } finally { setLoading(false); }
   };
 
@@ -531,8 +685,6 @@ export default function App() {
       if (querySnapshot.empty) { setError("No result found."); } else {
         const docSnap = querySnapshot.docs[0];
         const data = docSnap.data() as ResultData;
-        
-        // Verify Teacher ID matches the record OR matches Admin Code OR exists in Teacher DB
         let isAuthorized = false;
         if (adminQuery.teacherCode === TEACHER_SECRET_CODE) isAuthorized = true;
         else if (data.teacherId === adminQuery.teacherCode) isAuthorized = true;
@@ -543,8 +695,8 @@ export default function App() {
              return; 
         }
 
-        const enhancedSubjects = (data.subjects || []).map(s => ({ ...s, ca1: s.ca1 || 0, ca2: s.ca2 || 0, average: s.average || 0, selectedSubject: ALL_NIGERIAN_SUBJECTS.includes(s.name) ? s.name : 'Others' }));
-        setFormData({ ...data, subjects: enhancedSubjects, attendance: data.attendance || { present: 0, total: 0 }, affective: data.affective || AFFECTIVE_TRAITS.map(t => ({ name: t, rating: 3 })), psychomotor: data.psychomotor || PSYCHOMOTOR_SKILLS.map(t => ({ name: t, rating: 3 })) });
+        const enhancedSubjects = (data.subjects || []).map(s => ({ ...s, ca1: s.ca1 === undefined ? '' : s.ca1, ca2: s.ca2 === undefined ? '' : s.ca2, exam: s.exam === undefined ? '' : s.exam, average: s.average || 0, selectedSubject: ALL_NIGERIAN_SUBJECTS.includes(s.name) ? s.name : 'Others' }));
+        setFormData({ ...data, subjects: enhancedSubjects, attendance: data.attendance || { present: 0, total: 60 }, affective: data.affective || AFFECTIVE_TRAITS.map(t => ({ name: t, rating: 3 })), psychomotor: data.psychomotor || PSYCHOMOTOR_SKILLS.map(t => ({ name: t, rating: 3 })) });
         setEditDocId(docSnap.id); setIsEditing(true); setSuccessMsg("Result verified! Entering Edit Mode...");
         setTimeout(() => { setView('create'); setSuccessMsg(''); }, 1500);
       }
@@ -576,7 +728,124 @@ export default function App() {
     } finally { setLoading(false); }
   };
 
-  // --- Views ---
+  // --- Helpers for Calendar ---
+  const getDaysInMonth = (date: Date) => {
+    const year = date.getFullYear();
+    const month = date.getMonth();
+    const days = new Date(year, month + 1, 0).getDate();
+    return Array.from({ length: days }, (_, i) => {
+        const d = new Date(year, month, i + 1);
+        return {
+            date: d,
+            iso: d.toISOString().split('T')[0],
+            dayNum: i + 1,
+            isWeekend: d.getDay() === 0 || d.getDay() === 6
+        };
+    });
+  };
+
+  const renderAttendanceView = () => {
+    const days = getDaysInMonth(reportMonth);
+    const monthName = reportMonth.toLocaleString('default', { month: 'long', year: 'numeric' });
+    const todayISO = new Date().toISOString().split('T')[0];
+
+    return (
+    <div className="max-w-2xl mx-auto bg-white p-8 rounded-2xl shadow-xl animate-slide-up text-center">
+        <h2 className="text-3xl font-bold text-gray-800 mb-6 flex items-center justify-center gap-2"><CalendarCheck className="text-purple-600" /> Class Attendance</h2>
+        
+        <div className="mb-8">
+            <p className="text-gray-500 mb-4">Select an action below.</p>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <button 
+                    onClick={() => { setScannerContext('attendance_in'); setShowScanner(true); setError(''); setSuccessMsg(''); setAttendanceStatus(null); setAttendanceReport(null); }}
+                    className="flex flex-col items-center justify-center p-5 bg-green-50 border-2 border-green-200 rounded-2xl hover:bg-green-100 hover:border-green-500 transition-all group"
+                >
+                    <LogIn size={32} className="text-green-600 mb-1 group-hover:scale-110 transition-transform" />
+                    <span className="text-lg font-bold text-green-700">Clock In</span>
+                </button>
+                <button 
+                    onClick={() => { setScannerContext('attendance_out'); setShowScanner(true); setError(''); setSuccessMsg(''); setAttendanceStatus(null); setAttendanceReport(null); }}
+                    className="flex flex-col items-center justify-center p-5 bg-red-50 border-2 border-red-200 rounded-2xl hover:bg-red-100 hover:border-red-500 transition-all group"
+                >
+                    <LogOut size={32} className="text-red-600 mb-1 group-hover:scale-110 transition-transform" />
+                    <span className="text-lg font-bold text-red-700">Clock Out</span>
+                </button>
+                 <button 
+                    onClick={() => { setScannerContext('check_attendance'); setShowScanner(true); setError(''); setSuccessMsg(''); setAttendanceStatus(null); setAttendanceReport(null); }}
+                    className="flex flex-col items-center justify-center p-5 bg-blue-50 border-2 border-blue-200 rounded-2xl hover:bg-blue-100 hover:border-blue-500 transition-all group"
+                >
+                    <Calendar size={32} className="text-blue-600 mb-1 group-hover:scale-110 transition-transform" />
+                    <span className="text-lg font-bold text-blue-700">Check Report</span>
+                </button>
+            </div>
+        </div>
+
+        {attendanceStatus && (
+            <div className={`p-6 rounded-xl border-2 animate-fade-in ${attendanceStatus.type === 'in' ? 'bg-green-50 border-green-200 text-green-800' : 'bg-red-50 border-red-200 text-red-800'}`}>
+                <div className="text-5xl mb-2">{attendanceStatus.type === 'in' ? '👋' : '🏠'}</div>
+                <h3 className="text-2xl font-bold">{attendanceStatus.name}</h3>
+                <p className="text-lg font-medium">
+                    {attendanceStatus.type === 'in' ? 'Clocked IN' : 'Clocked OUT'} at <span className="font-mono font-bold bg-white/50 px-2 rounded">{attendanceStatus.time}</span>
+                </p>
+            </div>
+        )}
+
+        {/* CALENDAR REPORT SECTION */}
+        {attendanceReport && (
+            <div className="mt-8 border-t pt-8 animate-fade-in">
+                <div className="flex justify-between items-center mb-4">
+                     <h3 className="font-bold text-lg text-gray-800 text-left">Attendance: <span className="text-purple-600">{attendanceReport.student.name}</span></h3>
+                     <div className="flex items-center gap-2">
+                        <button onClick={() => setReportMonth(new Date(reportMonth.setMonth(reportMonth.getMonth() - 1)))} className="p-1 hover:bg-gray-100 rounded"><ChevronLeft size={20}/></button>
+                        <span className="text-sm font-bold min-w-[100px]">{monthName}</span>
+                        <button onClick={() => setReportMonth(new Date(reportMonth.setMonth(reportMonth.getMonth() + 1)))} className="p-1 hover:bg-gray-100 rounded"><ChevronRight size={20}/></button>
+                     </div>
+                </div>
+                
+                <div className="grid grid-cols-7 gap-1 mb-2 text-xs font-bold text-gray-400">
+                    <div>Sun</div><div>Mon</div><div>Tue</div><div>Wed</div><div>Thu</div><div>Fri</div><div>Sat</div>
+                </div>
+                <div className="grid grid-cols-7 gap-1">
+                    {/* Padding for start of month */}
+                    {Array.from({ length: new Date(reportMonth.getFullYear(), reportMonth.getMonth(), 1).getDay() }).map((_, i) => <div key={`empty-${i}`}></div>)}
+                    
+                    {days.map((d) => {
+                        const isLogged = attendanceReport.logs.some(log => log.date === d.iso);
+                        const isPast = d.iso < todayISO;
+                        const isToday = d.iso === todayISO;
+                        
+                        let bgClass = 'bg-gray-50 text-gray-400'; // Default / Future
+                        
+                        if (isLogged) {
+                            bgClass = 'bg-green-500 text-white shadow-sm'; // Present
+                        } else if (isPast && !d.isWeekend) {
+                            bgClass = 'bg-red-100 text-red-600 border border-red-200'; // Absent (Past Weekday)
+                        } else if (isToday && !isLogged) {
+                            bgClass = 'bg-yellow-100 text-yellow-700 border border-yellow-300'; // Today Not Yet
+                        } else if (d.isWeekend) {
+                            bgClass = 'bg-gray-100 text-gray-300'; // Weekend
+                        }
+
+                        return (
+                            <div key={d.dayNum} className={`aspect-square flex items-center justify-center rounded-lg text-sm font-bold ${bgClass}`}>
+                                {d.dayNum}
+                            </div>
+                        );
+                    })}
+                </div>
+                <div className="flex gap-4 justify-center mt-4 text-xs font-medium text-gray-500">
+                    <div className="flex items-center gap-1"><div className="w-3 h-3 bg-green-500 rounded"></div> Present</div>
+                    <div className="flex items-center gap-1"><div className="w-3 h-3 bg-red-100 border border-red-200 rounded"></div> Absent</div>
+                     <div className="flex items-center gap-1"><div className="w-3 h-3 bg-gray-100 rounded"></div> Wknd</div>
+                </div>
+            </div>
+        )}
+
+        {error && <div className="mt-4 p-4 bg-red-100 text-red-700 rounded-lg">{error}</div>}
+        
+        <button onClick={() => setView('home')} className="mt-8 text-gray-500 hover:text-gray-800 font-medium">Back to Home</button>
+    </div>
+  )};
 
   const renderSuperAdminView = () => {
     // Helper to calculate summary counts
@@ -676,6 +945,7 @@ export default function App() {
           </div>
         )}
 
+        {/* ... (Existing Tables for Schools, Students, Teachers, Results) ... */}
         {adminTab === 'schools' && (
            <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
              <div className="overflow-x-auto">
@@ -694,7 +964,6 @@ export default function App() {
                     ))}
                   </tbody>
                 </table>
-                {filteredSchools.length === 0 && <div className="p-8 text-center text-gray-500">No schools found matching search.</div>}
              </div>
            </div>
         )}
@@ -718,7 +987,6 @@ export default function App() {
                     ))}
                   </tbody>
                 </table>
-                 {filteredStudents.length === 0 && <div className="p-8 text-center text-gray-500">No students found matching search.</div>}
              </div>
            </div>
         )}
@@ -741,7 +1009,6 @@ export default function App() {
                     ))}
                   </tbody>
                 </table>
-                {filteredTeachers.length === 0 && <div className="p-8 text-center text-gray-500">No teachers found matching search.</div>}
              </div>
            </div>
         )}
@@ -761,7 +1028,6 @@ export default function App() {
                    </div>
                 </div>
              ))}
-             {filteredResults.length === 0 && <div className="col-span-full p-8 text-center text-gray-500 bg-white rounded-xl border border-gray-100">No results found matching search.</div>}
            </div>
         )}
 
@@ -831,6 +1097,72 @@ export default function App() {
         />
       )}
 
+      {/* Attendance Confirmation Modal */}
+      {pendingAttendance && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-[70] backdrop-blur-sm animate-fade-in">
+             <div className="bg-white rounded-2xl shadow-2xl p-6 max-w-md w-full">
+                <div className="flex justify-between items-center border-b pb-3 mb-4">
+                    <h3 className={`text-xl font-bold flex items-center gap-2 ${pendingAttendance.type === 'in' ? 'text-green-600' : 'text-red-600'}`}>
+                        {pendingAttendance.type === 'in' ? <LogIn /> : <LogOut />}
+                        Confirm Clock {pendingAttendance.type === 'in' ? 'IN' : 'OUT'}
+                    </h3>
+                    <button onClick={() => setPendingAttendance(null)} className="text-gray-400 hover:text-gray-600"><Trash2 size={20}/></button>
+                </div>
+                
+                <div className="flex items-center gap-4 mb-6 bg-gray-50 p-4 rounded-lg">
+                    <div className="w-12 h-12 bg-white rounded-full flex items-center justify-center border shadow-sm shrink-0 overflow-hidden">
+                        {pendingAttendance.student.schoolLogo ? <img src={pendingAttendance.student.schoolLogo} className="w-full h-full object-cover"/> : <School className="text-gray-400"/>}
+                    </div>
+                    <div>
+                        <h4 className="font-bold text-gray-800 text-lg">{pendingAttendance.student.studentName}</h4>
+                        <div className="text-sm text-gray-500">
+                             <span className="bg-gray-200 text-gray-700 px-2 py-0.5 rounded text-xs font-bold mr-2">{pendingAttendance.student.classLevel}</span>
+                             <span>{pendingAttendance.student.generatedId}</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div className="space-y-4 mb-6">
+                    <div>
+                        <label className="block text-sm font-bold text-gray-700 mb-1">
+                            {pendingAttendance.type === 'in' ? 'Dropped Off By (Guardian Name)' : 'Picked Up By (Guardian Name)'}
+                        </label>
+                        <input 
+                            type="text" 
+                            className="w-full p-3 border rounded-lg focus:ring-2 focus:ring-purple-500 outline-none"
+                            placeholder="e.g. Mrs. Adebayo"
+                            value={guardianInfo.name}
+                            onChange={(e) => setGuardianInfo({...guardianInfo, name: e.target.value})}
+                        />
+                    </div>
+                    <div>
+                        <label className="block text-sm font-bold text-gray-700 mb-1">Guardian Phone Number</label>
+                        <input 
+                            type="tel" 
+                            className="w-full p-3 border rounded-lg focus:ring-2 focus:ring-purple-500 outline-none"
+                            placeholder="e.g. 08012345678"
+                            value={guardianInfo.phone}
+                            onChange={(e) => setGuardianInfo({...guardianInfo, phone: e.target.value})}
+                        />
+                    </div>
+                </div>
+
+                <div className="flex gap-3">
+                    <button onClick={() => setPendingAttendance(null)} className="flex-1 py-3 bg-gray-100 text-gray-700 font-bold rounded-xl hover:bg-gray-200">Cancel</button>
+                    <button 
+                        onClick={handleConfirmAttendance} 
+                        disabled={loading}
+                        className={`flex-1 py-3 text-white font-bold rounded-xl shadow-lg flex items-center justify-center gap-2 ${pendingAttendance.type === 'in' ? 'bg-green-600 hover:bg-green-700' : 'bg-red-600 hover:bg-red-700'}`}
+                    >
+                        {loading ? <Loader2 className="animate-spin"/> : <CheckCircle size={18}/>}
+                        Confirm
+                    </button>
+                </div>
+                {error && <p className="text-red-500 text-sm text-center mt-3">{error}</p>}
+             </div>
+        </div>
+      )}
+
       <nav className="bg-white border-b border-gray-200 sticky top-0 z-10 print:hidden">
         <div className="max-w-6xl mx-auto px-4 py-4 flex justify-between items-center">
           <div className="flex items-center gap-2 font-bold text-xl text-purple-800 cursor-pointer" onClick={() => { resetForm(); setView('home'); }}><School /> Sleek School Portal</div>
@@ -839,7 +1171,7 @@ export default function App() {
       </nav>
       <main className="max-w-6xl mx-auto px-4 py-8">
         
-        {error && (
+        {error && !pendingAttendance && (
             <div className="mb-6 bg-red-50 border-l-4 border-red-500 p-4 rounded shadow-sm flex items-start gap-3">
                 <ShieldAlert className="text-red-500 shrink-0 mt-0.5" size={20} />
                 <div>
@@ -854,33 +1186,49 @@ export default function App() {
             <div className="bg-purple-50 p-6 rounded-full"><School className="w-16 h-16 text-purple-700" /></div>
             <h1 className="text-4xl font-bold text-gray-800 tracking-tight">Sleek School <span className="text-purple-600">Portal</span></h1>
             <p className="text-gray-600 max-w-md text-lg">Generate, manage, and distribute student results securely using School and Student IDs.</p>
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 w-full max-w-5xl mt-8 px-4">
-              <button onClick={() => { resetForm(); setView('create'); }} className="group p-6 bg-white border-2 border-purple-100 rounded-2xl hover:border-purple-500 hover:shadow-xl transition-all duration-300 text-left">
-                <div className="mb-4 text-purple-600"><FileText size={32} /></div>
-                <h3 className="text-xl font-bold text-gray-800 mb-1 group-hover:text-purple-700">Create Result</h3>
-                <p className="text-sm text-gray-500">Generate new result sheets using AI.</p>
-              </button>
-              <button onClick={() => setView('admin-dashboard')} className="group p-6 bg-white border-2 border-red-100 rounded-2xl hover:border-red-500 hover:shadow-xl transition-all duration-300 text-left">
-                <div className="mb-4 text-red-600"><ShieldAlert size={32} /></div>
-                <h3 className="text-xl font-bold text-gray-800 mb-1 group-hover:text-red-700">Admin</h3>
-                <p className="text-sm text-gray-500">Register School, Students & Manage DB.</p>
-              </button>
+            
+            {/* Rearranged Buttons: Check Result -> Attendance -> Create Result -> Edit Result -> Admin */}
+            <div className="grid grid-cols-1 md:grid-cols-5 gap-4 w-full max-w-6xl mt-8 px-4">
+              
               <button onClick={() => { resetForm(); setView('view-result'); }} className="group p-6 bg-white border-2 border-blue-100 rounded-2xl hover:border-blue-500 hover:shadow-xl transition-all duration-300 text-left">
                 <div className="mb-4 text-blue-600"><Search size={32} /></div>
                 <h3 className="text-xl font-bold text-gray-800 mb-1 group-hover:text-blue-700">Check Result</h3>
                 <p className="text-sm text-gray-500">Students view/print results.</p>
               </button>
+
+              <button onClick={() => { resetForm(); setView('attendance'); }} className="group p-6 bg-white border-2 border-green-100 rounded-2xl hover:border-green-500 hover:shadow-xl transition-all duration-300 text-left">
+                <div className="mb-4 text-green-600"><CalendarCheck size={32} /></div>
+                <h3 className="text-xl font-bold text-gray-800 mb-1 group-hover:text-green-700">Attendance</h3>
+                <p className="text-sm text-gray-500">Clock In/Out students.</p>
+              </button>
+
+              <button onClick={() => { resetForm(); setView('create'); }} className="group p-6 bg-white border-2 border-purple-100 rounded-2xl hover:border-purple-500 hover:shadow-xl transition-all duration-300 text-left">
+                <div className="mb-4 text-purple-600"><FileText size={32} /></div>
+                <h3 className="text-xl font-bold text-gray-800 mb-1 group-hover:text-purple-700">Create Result</h3>
+                <p className="text-sm text-gray-500">Generate new result sheets.</p>
+              </button>
+              
               <button onClick={() => { resetForm(); setView('admin-search'); }} className="group p-6 bg-white border-2 border-orange-100 rounded-2xl hover:border-orange-500 hover:shadow-xl transition-all duration-300 text-left">
                 <div className="mb-4 text-orange-600"><Edit size={32} /></div>
                 <h3 className="text-xl font-bold text-gray-800 mb-1 group-hover:text-orange-700">Edit Result</h3>
                 <p className="text-sm text-gray-500">Modify uploaded results.</p>
               </button>
+
+              <button onClick={() => setView('admin-dashboard')} className="group p-6 bg-white border-2 border-red-100 rounded-2xl hover:border-red-500 hover:shadow-xl transition-all duration-300 text-left">
+                <div className="mb-4 text-red-600"><ShieldAlert size={32} /></div>
+                <h3 className="text-xl font-bold text-gray-800 mb-1 group-hover:text-red-700">Admin</h3>
+                <p className="text-sm text-gray-500">Manage DB & Registers.</p>
+              </button>
             </div>
           </div>
         )}
 
+        {view === 'attendance' && renderAttendanceView()}
+
+        {/* ... (Rest of views: create, admin-dashboard, registers, etc - No major logic changes needed here, just ensuring structure is maintained) ... */}
         {view === 'create' && !isPreview && (
           <div className="max-w-5xl mx-auto bg-white shadow-lg rounded-xl overflow-hidden animate-slide-up">
+             {/* ... Create Form Content (Same as previous, just kept for context) ... */}
              <div className={`${isEditing ? 'bg-orange-600' : 'bg-purple-700'} p-6 text-white flex justify-between items-center`}>
               <h2 className="text-2xl font-bold flex items-center gap-2">{isEditing ? <Edit /> : <FileText />} {isEditing ? "Edit Existing Result" : "Result Generator"}</h2>
               <button onClick={() => setView('home')} className="text-white opacity-80 hover:opacity-100">Close</button>
