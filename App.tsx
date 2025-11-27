@@ -1,10 +1,10 @@
 
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { 
   School, FileText, Search, ShieldAlert, Edit, Users, Building2, 
   Database, Plus, Trash2, Trophy, Activity, 
   Sparkles, Loader2, Eye, ArrowLeft, RefreshCw, KeyRound, CheckCircle, Palette, Phone, Mail, MapPin, Clock, Star, UserCog,
-  Upload, QrCode, GraduationCap, Lock, House, LayoutDashboard, UserCheck, CreditCard, LogIn, LogOut, CalendarCheck, Calendar, ChevronLeft, ChevronRight, User
+  Upload, QrCode, GraduationCap, Lock, House, LayoutDashboard, UserCheck, CreditCard, LogIn, LogOut, CalendarCheck, Calendar, ChevronLeft, ChevronRight, FileDown
 } from 'lucide-react';
 import { collection, addDoc, query, where, getDocs, doc, updateDoc, orderBy } from 'firebase/firestore';
 
@@ -73,6 +73,10 @@ export default function App() {
   const [attendanceStatus, setAttendanceStatus] = useState<{name: string, time: string, type: 'in' | 'out'} | null>(null);
   const [attendanceReport, setAttendanceReport] = useState<{logs: AttendanceLog[], student: {name: string, id: string}} | null>(null);
   const [reportMonth, setReportMonth] = useState(new Date());
+  const [selectedDateLog, setSelectedDateLog] = useState<AttendanceLog | null>(null);
+  const [reportStartDate, setReportStartDate] = useState('');
+  const [reportEndDate, setReportEndDate] = useState('');
+  const attendancePrintRef = useRef<HTMLDivElement>(null);
 
   // Attendance Confirmation Modal State
   const [pendingAttendance, setPendingAttendance] = useState<{
@@ -130,6 +134,9 @@ export default function App() {
     setPendingAttendance(null);
     setGuardianInfo({ name: '', phone: '' });
     setReportMonth(new Date());
+    setSelectedDateLog(null);
+    setReportStartDate('');
+    setReportEndDate('');
   };
 
   const handleConfirmAttendance = async () => {
@@ -210,6 +217,22 @@ export default function App() {
           setPendingAttendance(null); // Close modal
           setGuardianInfo({ name: '', phone: '' });
       }
+  };
+
+  const handleDownloadAttendanceReport = () => {
+    if (!attendanceReport || !window.html2pdf || !attendancePrintRef.current) return;
+    
+    const element = attendancePrintRef.current;
+    const filename = `${attendanceReport.student.name.replace(/\s+/g, '_')}_Attendance_Report.pdf`;
+
+    const opt = {
+      margin: 0, // We set margins manually with padding in the container to ensure exact A4 fit
+      filename: filename,
+      image: { type: 'jpeg', quality: 0.98 },
+      html2canvas: { scale: 2, useCORS: true },
+      jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+    };
+    window.html2pdf().set(opt).from(element).save();
   };
 
   const handleScanSuccess = async (decodedText: string) => {
@@ -381,8 +404,6 @@ export default function App() {
         setError("Failed to parse QR Code data. Is this a valid Student ID?");
     }
   };
-
-  // ... (Keep existing handle functions: handleAutoFillSchool, handleAutoFillStudent, handleLogoUpload, handleSubjectChange, handleAddSubject, handleRemoveSubject, loadPresetSubjects, handleGenerateRemarks, handlePublish, handleRegisterStudent, handleRegisterTeacher, handleRegisterSchool, handleCheckResult, handleAdminLookup, handleSuperAdminAccess)
 
   const handleAutoFillSchool = async () => {
     if (!formData.schoolId) return;
@@ -757,21 +778,21 @@ export default function App() {
             <p className="text-gray-500 mb-4">Select an action below.</p>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <button 
-                    onClick={() => { setScannerContext('attendance_in'); setShowScanner(true); setError(''); setSuccessMsg(''); setAttendanceStatus(null); setAttendanceReport(null); }}
+                    onClick={() => { setScannerContext('attendance_in'); setShowScanner(true); setError(''); setSuccessMsg(''); setAttendanceStatus(null); setAttendanceReport(null); setSelectedDateLog(null); }}
                     className="flex flex-col items-center justify-center p-5 bg-green-50 border-2 border-green-200 rounded-2xl hover:bg-green-100 hover:border-green-500 transition-all group"
                 >
                     <LogIn size={32} className="text-green-600 mb-1 group-hover:scale-110 transition-transform" />
                     <span className="text-lg font-bold text-green-700">Clock In</span>
                 </button>
                 <button 
-                    onClick={() => { setScannerContext('attendance_out'); setShowScanner(true); setError(''); setSuccessMsg(''); setAttendanceStatus(null); setAttendanceReport(null); }}
+                    onClick={() => { setScannerContext('attendance_out'); setShowScanner(true); setError(''); setSuccessMsg(''); setAttendanceStatus(null); setAttendanceReport(null); setSelectedDateLog(null); }}
                     className="flex flex-col items-center justify-center p-5 bg-red-50 border-2 border-red-200 rounded-2xl hover:bg-red-100 hover:border-red-500 transition-all group"
                 >
                     <LogOut size={32} className="text-red-600 mb-1 group-hover:scale-110 transition-transform" />
                     <span className="text-lg font-bold text-red-700">Clock Out</span>
                 </button>
                  <button 
-                    onClick={() => { setScannerContext('check_attendance'); setShowScanner(true); setError(''); setSuccessMsg(''); setAttendanceStatus(null); setAttendanceReport(null); }}
+                    onClick={() => { setScannerContext('check_attendance'); setShowScanner(true); setError(''); setSuccessMsg(''); setAttendanceStatus(null); setAttendanceReport(null); setSelectedDateLog(null); }}
                     className="flex flex-col items-center justify-center p-5 bg-blue-50 border-2 border-blue-200 rounded-2xl hover:bg-blue-100 hover:border-blue-500 transition-all group"
                 >
                     <Calendar size={32} className="text-blue-600 mb-1 group-hover:scale-110 transition-transform" />
@@ -793,13 +814,28 @@ export default function App() {
         {/* CALENDAR REPORT SECTION */}
         {attendanceReport && (
             <div className="mt-8 border-t pt-8 animate-fade-in">
-                <div className="flex justify-between items-center mb-4">
+                <div className="flex justify-between items-center mb-4 flex-wrap gap-2">
                      <h3 className="font-bold text-lg text-gray-800 text-left">Attendance: <span className="text-purple-600">{attendanceReport.student.name}</span></h3>
                      <div className="flex items-center gap-2">
                         <button onClick={() => setReportMonth(new Date(reportMonth.setMonth(reportMonth.getMonth() - 1)))} className="p-1 hover:bg-gray-100 rounded"><ChevronLeft size={20}/></button>
                         <span className="text-sm font-bold min-w-[100px]">{monthName}</span>
                         <button onClick={() => setReportMonth(new Date(reportMonth.setMonth(reportMonth.getMonth() + 1)))} className="p-1 hover:bg-gray-100 rounded"><ChevronRight size={20}/></button>
                      </div>
+                </div>
+
+                {/* Filter and Download Controls */}
+                 <div className="bg-gray-50 p-4 rounded-xl mb-6 flex flex-wrap gap-4 items-end justify-center border border-gray-100">
+                    <div>
+                        <label className="text-xs font-bold text-gray-500 block mb-1">Start Date</label>
+                        <input type="date" value={reportStartDate} onChange={e => setReportStartDate(e.target.value)} className="p-2 border rounded text-sm w-36 outline-none focus:ring-1 focus:ring-purple-500 bg-white"/>
+                    </div>
+                    <div>
+                        <label className="text-xs font-bold text-gray-500 block mb-1">End Date</label>
+                        <input type="date" value={reportEndDate} onChange={e => setReportEndDate(e.target.value)} className="p-2 border rounded text-sm w-36 outline-none focus:ring-1 focus:ring-purple-500 bg-white"/>
+                    </div>
+                    <button onClick={handleDownloadAttendanceReport} className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 h-[38px] transition shadow-md">
+                        <FileDown size={18}/> Download PDF
+                    </button>
                 </div>
                 
                 <div className="grid grid-cols-7 gap-1 mb-2 text-xs font-bold text-gray-400">
@@ -810,14 +846,15 @@ export default function App() {
                     {Array.from({ length: new Date(reportMonth.getFullYear(), reportMonth.getMonth(), 1).getDay() }).map((_, i) => <div key={`empty-${i}`}></div>)}
                     
                     {days.map((d) => {
-                        const isLogged = attendanceReport.logs.some(log => log.date === d.iso);
+                        const log = attendanceReport.logs.find(log => log.date === d.iso);
+                        const isLogged = !!log;
                         const isPast = d.iso < todayISO;
                         const isToday = d.iso === todayISO;
                         
                         let bgClass = 'bg-gray-50 text-gray-400'; // Default / Future
                         
                         if (isLogged) {
-                            bgClass = 'bg-green-500 text-white shadow-sm'; // Present
+                            bgClass = 'bg-green-500 text-white shadow-sm cursor-pointer hover:bg-green-600 transition'; // Present
                         } else if (isPast && !d.isWeekend) {
                             bgClass = 'bg-red-100 text-red-600 border border-red-200'; // Absent (Past Weekday)
                         } else if (isToday && !isLogged) {
@@ -827,16 +864,57 @@ export default function App() {
                         }
 
                         return (
-                            <div key={d.dayNum} className={`aspect-square flex items-center justify-center rounded-lg text-sm font-bold ${bgClass}`}>
+                            <div 
+                                key={d.dayNum} 
+                                onClick={() => { if(isLogged) setSelectedDateLog(log || null); }}
+                                className={`aspect-square flex items-center justify-center rounded-lg text-sm font-bold relative group ${bgClass}`}
+                            >
                                 {d.dayNum}
+                                {isLogged && <span className="absolute bottom-1 w-1 h-1 bg-white rounded-full"></span>}
                             </div>
                         );
                     })}
                 </div>
                 <div className="flex gap-4 justify-center mt-4 text-xs font-medium text-gray-500">
-                    <div className="flex items-center gap-1"><div className="w-3 h-3 bg-green-500 rounded"></div> Present</div>
+                    <div className="flex items-center gap-1"><div className="w-3 h-3 bg-green-500 rounded"></div> Present (Click for Details)</div>
                     <div className="flex items-center gap-1"><div className="w-3 h-3 bg-red-100 border border-red-200 rounded"></div> Absent</div>
                      <div className="flex items-center gap-1"><div className="w-3 h-3 bg-gray-100 rounded"></div> Wknd</div>
+                </div>
+            </div>
+        )}
+
+        {/* Selected Date Log Detail Modal */}
+        {selectedDateLog && (
+            <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4 animate-fade-in" onClick={() => setSelectedDateLog(null)}>
+                <div className="bg-white p-6 rounded-2xl shadow-2xl max-w-sm w-full m-4 relative" onClick={e => e.stopPropagation()}>
+                    <button onClick={() => setSelectedDateLog(null)} className="absolute top-4 right-4 text-gray-400 hover:text-gray-600">✕</button>
+                    <h3 className="font-bold text-xl text-gray-800 mb-1">Attendance Details</h3>
+                    <p className="text-sm text-gray-500 mb-6 font-medium">{new Date(selectedDateLog.date).toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</p>
+                    
+                    <div className="space-y-4">
+                        <div className="bg-green-50 p-4 rounded-xl border border-green-100">
+                            <div className="flex items-center gap-2 mb-2">
+                                <LogIn className="text-green-600" size={18}/>
+                                <p className="text-xs font-bold text-green-800 uppercase tracking-wide">Clock In</p>
+                            </div>
+                            <p className="text-2xl font-mono font-bold text-green-900 mb-2">{selectedDateLog.clockInTime || '---'}</p>
+                            <div className="text-sm text-green-800 bg-white/60 p-2 rounded-lg">
+                                <div className="flex gap-1 mb-1"><span className="font-semibold text-green-900 w-16">Guardian:</span> <span>{selectedDateLog.dropOffGuardian || 'N/A'}</span></div>
+                                <div className="flex gap-1"><span className="font-semibold text-green-900 w-16">Phone:</span> <span>{selectedDateLog.dropOffPhone || 'N/A'}</span></div>
+                            </div>
+                        </div>
+                        <div className="bg-red-50 p-4 rounded-xl border border-red-100">
+                            <div className="flex items-center gap-2 mb-2">
+                                <LogOut className="text-red-600" size={18}/>
+                                <p className="text-xs font-bold text-red-800 uppercase tracking-wide">Clock Out</p>
+                            </div>
+                            <p className="text-2xl font-mono font-bold text-red-900 mb-2">{selectedDateLog.clockOutTime || '---'}</p>
+                            <div className="text-sm text-red-800 bg-white/60 p-2 rounded-lg">
+                                <div className="flex gap-1 mb-1"><span className="font-semibold text-red-900 w-16">Guardian:</span> <span>{selectedDateLog.pickUpGuardian || 'N/A'}</span></div>
+                                <div className="flex gap-1"><span className="font-semibold text-red-900 w-16">Phone:</span> <span>{selectedDateLog.pickUpPhone || 'N/A'}</span></div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
         )}
@@ -844,6 +922,72 @@ export default function App() {
         {error && <div className="mt-4 p-4 bg-red-100 text-red-700 rounded-lg">{error}</div>}
         
         <button onClick={() => setView('home')} className="mt-8 text-gray-500 hover:text-gray-800 font-medium">Back to Home</button>
+
+         {/* Hidden Report for PDF Generation */}
+        <div className="fixed top-0 left-0 -z-50 invisible pointer-events-none">
+            {attendanceReport && (
+                <div 
+                    ref={attendancePrintRef} 
+                    style={{ 
+                        width: '210mm', 
+                        minHeight: '297mm',
+                        padding: '15mm',
+                        backgroundColor: 'white',
+                        color: 'black',
+                        fontFamily: 'sans-serif',
+                        boxSizing: 'border-box'
+                    }}
+                >
+                    <div className="flex items-center justify-between border-b-2 border-black pb-4 mb-6">
+                         <div>
+                             <h1 className="text-2xl font-bold uppercase tracking-wide">Attendance Report</h1>
+                             <p className="text-sm text-gray-600 mt-1">Generated on {new Date().toLocaleDateString()}</p>
+                         </div>
+                         <div className="text-right">
+                             <h2 className="text-xl font-bold">{attendanceReport.student.name}</h2>
+                             <p className="font-mono text-gray-500">{attendanceReport.student.id}</p>
+                         </div>
+                    </div>
+                    
+                    <table className="w-full text-left text-sm border-collapse border border-gray-300">
+                        <thead className="bg-gray-100 text-gray-700 uppercase text-xs">
+                            <tr>
+                                <th className="border border-gray-300 p-3">Date</th>
+                                <th className="border border-gray-300 p-3">Clock In</th>
+                                <th className="border border-gray-300 p-3">Drop-off Guardian</th>
+                                <th className="border border-gray-300 p-3">Clock Out</th>
+                                <th className="border border-gray-300 p-3">Pick-up Guardian</th>
+                            </tr>
+                        </thead>
+                        <tbody className="text-gray-800">
+                            {attendanceReport.logs
+                                .filter(l => (!reportStartDate || l.date >= reportStartDate) && (!reportEndDate || l.date <= reportEndDate))
+                                .sort((a,b) => a.date.localeCompare(b.date))
+                                .map((log, i) => (
+                                <tr key={i} className={i % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
+                                    <td className="border border-gray-300 p-3 font-medium">{log.date}</td>
+                                    <td className="border border-gray-300 p-3 font-mono">{log.clockInTime || '-'}</td>
+                                    <td className="border border-gray-300 p-3">
+                                        <div className="font-bold">{log.dropOffGuardian || '-'}</div>
+                                        <div className="text-xs text-gray-500">{log.dropOffPhone}</div>
+                                    </td>
+                                    <td className="border border-gray-300 p-3 font-mono">{log.clockOutTime || '-'}</td>
+                                    <td className="border border-gray-300 p-3">
+                                        <div className="font-bold">{log.pickUpGuardian || '-'}</div>
+                                        <div className="text-xs text-gray-500">{log.pickUpPhone}</div>
+                                    </td>
+                                </tr>
+                            ))}
+                             {attendanceReport.logs.filter(l => (!reportStartDate || l.date >= reportStartDate) && (!reportEndDate || l.date <= reportEndDate)).length === 0 && (
+                                <tr>
+                                    <td colSpan={5} className="p-8 text-center text-gray-500 italic">No records found for the selected date range.</td>
+                                </tr>
+                             )}
+                        </tbody>
+                    </table>
+                </div>
+            )}
+        </div>
     </div>
   )};
 
