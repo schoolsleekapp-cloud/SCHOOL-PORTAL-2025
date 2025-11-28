@@ -1,7 +1,9 @@
 
-import React, { useRef } from 'react';
-import { FileDown, FileType, MapPin, Phone, Mail, Clock } from 'lucide-react';
+import React, { useRef, useState } from 'react';
+import { FileDown, FileType, MapPin, Phone, Mail, Clock, Share2, Loader2 } from 'lucide-react';
 import { ResultData } from '../types';
+import { storage } from '../services/firebase';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 
 // Add html2pdf to window type
 declare global {
@@ -20,6 +22,8 @@ const ResultTemplate: React.FC<ResultTemplateProps> = ({ data, showDownloads = f
   const sheetRef = useRef<HTMLDivElement>(null);
   // Ref for the hidden container used for "Perfect A4" PDF generation
   const pdfContainerRef = useRef<HTMLDivElement>(null);
+  
+  const [sharing, setSharing] = useState(false);
 
   // Compute Student Average
   const totalScoreSum = data.subjects.reduce((acc, sub) => acc + (Number(sub.total) || 0), 0);
@@ -42,6 +46,54 @@ const ResultTemplate: React.FC<ResultTemplateProps> = ({ data, showDownloads = f
       jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
     };
     window.html2pdf().set(opt).from(element).save();
+  };
+
+  const handleShareWhatsApp = async () => {
+    if (!window.html2pdf || !pdfContainerRef.current) return;
+    if (!data.parentPhone) {
+        alert("Parent phone number is not available for this student.");
+        return;
+    }
+
+    setSharing(true);
+    const element = pdfContainerRef.current;
+    
+    const opt = {
+      margin: 0, 
+      filename: `${data.studentName}_Result.pdf`,
+      image: { type: 'jpeg', quality: 0.98 },
+      html2canvas: { scale: 2, useCORS: true, scrollY: 0 }, 
+      jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+    };
+
+    try {
+        // 1. Generate PDF as Blob
+        const pdfBlob = await window.html2pdf().set(opt).from(element).output('blob');
+        
+        // 2. Upload to Firebase Storage
+        const fileName = `results/${data.schoolId}/${data.studentName}_${Date.now()}.pdf`;
+        const storageRef = ref(storage, fileName);
+        await uploadBytes(storageRef, pdfBlob);
+        
+        // 3. Get Download URL
+        const downloadUrl = await getDownloadURL(storageRef);
+        
+        // 4. Format Phone Number (Assume Nigerian for now, strip leading 0 add 234)
+        let phone = data.parentPhone.replace(/\D/g, ''); // Remove non-digits
+        if (phone.startsWith('0')) phone = '234' + phone.substring(1);
+        
+        // 5. Open WhatsApp
+        const message = `Hello, please find the result for ${data.studentName} here: ${downloadUrl}`;
+        const whatsappUrl = `https://wa.me/${phone}?text=${encodeURIComponent(message)}`;
+        
+        window.open(whatsappUrl, '_blank');
+        
+    } catch (error) {
+        console.error("Error sharing result:", error);
+        alert("Failed to share result. Please try downloading instead.");
+    } finally {
+        setSharing(false);
+    }
   };
 
   const handleDownloadWord = () => {
@@ -217,10 +269,13 @@ const ResultTemplate: React.FC<ResultTemplateProps> = ({ data, showDownloads = f
       {showDownloads && (
         <div className="w-full max-w-3xl flex flex-wrap gap-4 justify-center print:hidden mt-8 pt-6 border-t border-gray-200 animate-fade-in">
             <button onClick={handleDownloadPDF} className="flex items-center gap-2 px-8 py-3 bg-red-600 text-white rounded-full hover:bg-red-700 transition-colors text-sm font-bold shadow-lg">
-            <FileDown size={18}/> Download PDF
+               <FileDown size={18}/> Download PDF
+            </button>
+            <button onClick={handleShareWhatsApp} disabled={sharing} className="flex items-center gap-2 px-8 py-3 bg-green-600 text-white rounded-full hover:bg-green-700 transition-colors text-sm font-bold shadow-lg">
+               {sharing ? <Loader2 size={18} className="animate-spin"/> : <Share2 size={18}/>} Share via WhatsApp
             </button>
             <button onClick={handleDownloadWord} className="flex items-center gap-2 px-8 py-3 bg-blue-600 text-white rounded-full hover:bg-blue-700 transition-colors text-sm font-bold shadow-lg">
-            <FileType size={18}/> Download Word
+               <FileType size={18}/> Download Word
             </button>
         </div>
       )}

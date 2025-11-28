@@ -1,5 +1,6 @@
+
 import { GoogleGenAI, Type } from "@google/genai";
-import { Subject, Trait } from "../types";
+import { Subject, Trait, Question } from "../types";
 
 // Vite uses import.meta.env for environment variables. 
 // We fallback to process.env for local non-Vite environments if needed.
@@ -72,5 +73,62 @@ export const generateGeminiRemarks = async (
       principalRemark: "Good result, keep it up.",
       teacherRemark: "A diligent student."
     };
+  }
+};
+
+export const generateExamQuestions = async (
+  topicOrNotes: string,
+  classLevel: string,
+  subject: string,
+  count: number = 10
+): Promise<Question[]> => {
+  if (!apiKey) {
+    throw new Error("API Key Missing");
+  }
+
+  const prompt = `
+    Create a ${count}-question Multiple Choice Examination for a ${classLevel} student on the subject of ${subject}.
+    
+    Context/Lesson Notes:
+    "${topicOrNotes}"
+
+    Requirements:
+    1. Generate exactly ${count} questions.
+    2. Each question must have 4 options.
+    3. Clearly indicate the correct answer.
+    4. The correct answer MUST be one of the options provided.
+    
+    Return pure JSON format array.
+  `;
+
+  try {
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-flash',
+      contents: prompt,
+      config: {
+        responseMimeType: 'application/json',
+        responseSchema: {
+          type: Type.ARRAY,
+          items: {
+            type: Type.OBJECT,
+            properties: {
+              id: { type: Type.INTEGER },
+              questionText: { type: Type.STRING },
+              options: { type: Type.ARRAY, items: { type: Type.STRING } },
+              correctAnswer: { type: Type.STRING }
+            },
+            required: ['id', 'questionText', 'options', 'correctAnswer']
+          }
+        }
+      }
+    });
+
+    if (response.text) {
+      return JSON.parse(response.text) as Question[];
+    }
+    throw new Error("Failed to generate questions");
+  } catch (error) {
+    console.error("Gemini Question Gen Error:", error);
+    throw error;
   }
 };
