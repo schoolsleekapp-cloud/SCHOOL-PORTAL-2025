@@ -80,26 +80,120 @@ export const generateExamQuestions = async (
   topicOrNotes: string,
   classLevel: string,
   subject: string,
-  count: number = 10
+  count: number = 10,
+  mode: 'objective' | 'theory' | 'comprehension' = 'objective'
 ): Promise<Question[]> => {
   if (!apiKey) {
     throw new Error("API Key Missing");
   }
 
-  const prompt = `
-    Create a ${count}-question Multiple Choice Examination for a ${classLevel} student on the subject of ${subject}.
-    
-    Context/Lesson Notes:
-    "${topicOrNotes}"
+  let prompt = '';
+  let responseSchema = {};
 
-    Requirements:
-    1. Generate exactly ${count} questions.
-    2. Each question must have 4 options.
-    3. Clearly indicate the correct answer.
-    4. The correct answer MUST be one of the options provided.
-    
-    Return pure JSON format array.
+  // Common Constraint ensuring strict adherence to uploaded content
+  const strictConstraint = `
+    IMPORTANT INSTRUCTION:
+    - You must strictly generate questions ONLY based on the "Context/Lesson Notes" provided below.
+    - Do NOT use outside knowledge, facts not present in the text, or general knowledge.
+    - If the provided text is insufficient to generate ${count} questions, generate as many as possible based strictly on the text.
+    - Ensure the language and complexity matches a ${classLevel} student.
   `;
+
+  if (mode === 'theory') {
+    prompt = `
+      Create a ${count}-question Essay/Theory Examination for a ${classLevel} student on the subject of ${subject}.
+      
+      ${strictConstraint}
+
+      Context/Lesson Notes:
+      "${topicOrNotes}"
+
+      Requirements:
+      1. Generate exactly ${count} questions (or fewer if content is limited).
+      2. Questions should require written explanations.
+      3. Provide a 'correctAnswer' field which contains the Model Answer or Marking Guide found in the text.
+      4. No options are required.
+      
+      Return pure JSON format array.
+    `;
+    
+    responseSchema = {
+      type: Type.ARRAY,
+      items: {
+        type: Type.OBJECT,
+        properties: {
+          id: { type: Type.INTEGER },
+          questionText: { type: Type.STRING },
+          correctAnswer: { type: Type.STRING }
+        },
+        required: ['id', 'questionText', 'correctAnswer']
+      }
+    };
+  } else if (mode === 'comprehension') {
+    // Comprehension treats the notes as a strict passage
+    prompt = `
+      Create a ${count}-question Reading Comprehension Examination for a ${classLevel} student.
+      
+      ${strictConstraint}
+
+      Passage / Content:
+      "${topicOrNotes}"
+
+      Requirements:
+      1. Generate exactly ${count} Multiple Choice questions based *strictly* on the passage above.
+      2. Each question must have 4 options.
+      3. Clearly indicate the correct answer found in the passage.
+      4. The correct answer MUST be one of the options provided.
+      
+      Return pure JSON format array.
+    `;
+
+    responseSchema = {
+      type: Type.ARRAY,
+      items: {
+        type: Type.OBJECT,
+        properties: {
+          id: { type: Type.INTEGER },
+          questionText: { type: Type.STRING },
+          options: { type: Type.ARRAY, items: { type: Type.STRING } },
+          correctAnswer: { type: Type.STRING }
+        },
+        required: ['id', 'questionText', 'options', 'correctAnswer']
+      }
+    };
+  } else {
+    // Default Objective
+    prompt = `
+      Create a ${count}-question Multiple Choice Examination for a ${classLevel} student on the subject of ${subject}.
+      
+      ${strictConstraint}
+
+      Context/Lesson Notes:
+      "${topicOrNotes}"
+
+      Requirements:
+      1. Generate exactly ${count} questions.
+      2. Each question must have 4 options.
+      3. Clearly indicate the correct answer.
+      4. The correct answer MUST be one of the options provided.
+      
+      Return pure JSON format array.
+    `;
+
+    responseSchema = {
+      type: Type.ARRAY,
+      items: {
+        type: Type.OBJECT,
+        properties: {
+          id: { type: Type.INTEGER },
+          questionText: { type: Type.STRING },
+          options: { type: Type.ARRAY, items: { type: Type.STRING } },
+          correctAnswer: { type: Type.STRING }
+        },
+        required: ['id', 'questionText', 'options', 'correctAnswer']
+      }
+    };
+  }
 
   try {
     const response = await ai.models.generateContent({
@@ -107,19 +201,7 @@ export const generateExamQuestions = async (
       contents: prompt,
       config: {
         responseMimeType: 'application/json',
-        responseSchema: {
-          type: Type.ARRAY,
-          items: {
-            type: Type.OBJECT,
-            properties: {
-              id: { type: Type.INTEGER },
-              questionText: { type: Type.STRING },
-              options: { type: Type.ARRAY, items: { type: Type.STRING } },
-              correctAnswer: { type: Type.STRING }
-            },
-            required: ['id', 'questionText', 'options', 'correctAnswer']
-          }
-        }
+        responseSchema: responseSchema as any
       }
     });
 

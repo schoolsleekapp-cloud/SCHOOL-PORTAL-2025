@@ -1,17 +1,18 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   Laptop2, QrCode, Upload, FileText, CheckCircle, Clock, 
-  AlertCircle, ChevronRight, Save, User, School, Play, BrainCircuit, Loader2, KeyRound
+  AlertCircle, ChevronRight, Save, User, School, Play, BrainCircuit, Loader2, KeyRound, Calculator, BookOpen, Layers, Type, AlignLeft,
+  FileDown, Trash2, Copy, Users, Printer, Eye, ClipboardList, Edit, X
 } from 'lucide-react';
 import { 
-  collection, addDoc, query, where, getDocs, updateDoc, doc, setDoc 
+  collection, addDoc, query, where, getDocs, updateDoc, doc, setDoc, orderBy 
 } from 'firebase/firestore';
 import { db } from '../services/firebase';
 import { generateExamQuestions } from '../services/gemini';
 import { 
   TeacherData, StudentData, CbtAssessment, Question, 
-  AssessmentType, ResultData, Subject 
+  AssessmentType, ResultData, Subject, ExamLog 
 } from '../types';
 import { CLASS_LEVELS, ALL_NIGERIAN_SUBJECTS } from '../constants';
 import QrScannerModal from './QrScannerModal';
@@ -36,15 +37,27 @@ const CbtPortal: React.FC<CbtPortalProps> = ({ onBack }) => {
 
   // Teacher State
   const [teacher, setTeacher] = useState<TeacherData | null>(null);
+  const [myAssessments, setMyAssessments] = useState<CbtAssessment[]>([]);
+  const [viewingHistoryItem, setViewingHistoryItem] = useState<CbtAssessment | null>(null);
+
   const [assessmentForm, setAssessmentForm] = useState({
     subject: '',
+    selectedSubject: '', // Tracks dropdown value
     classLevel: '',
     term: 'First Term',
     type: 'ca1' as AssessmentType,
+    questionMode: 'objective' as 'objective' | 'theory' | 'comprehension',
+    questionCount: 10, // Default number of questions
+    instructions: '',
     duration: 30, // minutes
     notes: '',
     generatedQuestions: [] as Question[]
   });
+
+  // Result Viewer State
+  const [showResultModal, setShowResultModal] = useState(false);
+  const [resultExamCode, setResultExamCode] = useState('');
+  const [examResults, setExamResults] = useState<ExamLog[]>([]);
 
   // Student State
   const [student, setStudent] = useState<StudentData | null>(null);
@@ -54,6 +67,18 @@ const CbtPortal: React.FC<CbtPortalProps> = ({ onBack }) => {
   const [timeLeft, setTimeLeft] = useState(0);
   const [examSubmitted, setExamSubmitted] = useState(false);
   const [scoreData, setScoreData] = useState<{score: number, total: number, percentage: number} | null>(null);
+
+  // PDF Refs
+  const questionsPrintRef = useRef<HTMLDivElement>(null);
+  const historyPrintRef = useRef<HTMLDivElement>(null);
+  const studentResultPrintRef = useRef<HTMLDivElement>(null);
+
+  // Math Symbols
+  const MATH_SYMBOLS = [
+    '√', 'π', 'θ', '∞', '∫', '∑', '∂', '∆', 'μ', 'σ', 
+    '±', '≠', '≈', '≤', '≥', '÷', '×', '·', 
+    '²', '³', '½', '∈', '∀', '∃', '⇒', 'Ω', '°'
+  ];
 
   // --- TIMER LOGIC ---
   useEffect(() => {
@@ -72,7 +97,73 @@ const CbtPortal: React.FC<CbtPortalProps> = ({ onBack }) => {
     }
   }, [activeAssessment, examSubmitted, timeLeft]);
 
+  // Fetch Teacher's Assessment History
+  useEffect(() => {
+    if (teacher && mode === 'teacher_dash') {
+      const fetchHistory = async () => {
+        try {
+          // Removed orderBy to prevent index requirement error. Sorting is done client-side.
+          const q = query(
+            collection(db, 'CBT Assessments'),
+            where("teacherId", "==", teacher.generatedId)
+          );
+          const snap = await getDocs(q);
+          const data = snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as CbtAssessment));
+          
+          // Sort client-side by createdAt descending
+          data.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+          
+          setMyAssessments(data);
+        } catch (err) {
+          console.error("Error fetching history:", err);
+        }
+      };
+      fetchHistory();
+    }
+  }, [teacher, mode, success]);
+
   // --- HANDLERS ---
+
+  const insertSymbol = (symbol: string) => {
+    const textarea = document.getElementById('cbt-notes-input') as HTMLTextAreaElement;
+    if (textarea) {
+        const start = textarea.selectionStart;
+        const end = textarea.selectionEnd;
+        const text = assessmentForm.notes;
+        const newText = text.substring(0, start) + symbol + text.substring(end);
+        setAssessmentForm(prev => ({ ...prev, notes: newText }));
+        // Restore focus and cursor
+        setTimeout(() => {
+            textarea.focus();
+            textarea.setSelectionRange(start + symbol.length, start + symbol.length);
+        }, 0);
+    } else {
+        setAssessmentForm(prev => ({ ...prev, notes: prev.notes + symbol }));
+    }
+  };
+
+  const handleUpdateQuestion = (idx: number, field: string, val: string, optIdx?: number) => {
+    const updatedQuestions = [...assessmentForm.generatedQuestions];
+    const question = { ...updatedQuestions[idx] };
+
+    if (field === 'text') {
+        question.questionText = val;
+    } else if (field === 'correct') {
+        question.correctAnswer = val;
+    } else if (field === 'option' && question.options && optIdx !== undefined) {
+        const updatedOptions = [...question.options];
+        updatedOptions[optIdx] = val;
+        question.options = updatedOptions;
+    }
+
+    updatedQuestions[idx] = question;
+    setAssessmentForm(prev => ({ ...prev, generatedQuestions: updatedQuestions }));
+  };
+
+  const handleRemoveQuestion = (idx: number) => {
+      const updatedQuestions = assessmentForm.generatedQuestions.filter((_, i) => i !== idx);
+      setAssessmentForm(prev => ({ ...prev, generatedQuestions: updatedQuestions }));
+  };
 
   const handleScan = async (dataStr: string) => {
     setShowScanner(false);
@@ -165,12 +256,20 @@ const CbtPortal: React.FC<CbtPortalProps> = ({ onBack }) => {
       const questions = await generateExamQuestions(
         assessmentForm.notes,
         assessmentForm.classLevel,
-        assessmentForm.subject
+        assessmentForm.subject,
+        assessmentForm.questionCount,
+        assessmentForm.questionMode
       );
-      setAssessmentForm(prev => ({ ...prev, generatedQuestions: questions }));
-      setSuccess("Questions generated successfully! You can review them below.");
+      
+      // Append new questions to existing ones (Continuation logic)
+      setAssessmentForm(prev => ({ 
+          ...prev, 
+          generatedQuestions: [...prev.generatedQuestions, ...questions] 
+      }));
+      
+      setSuccess(`Generated ${questions.length} ${assessmentForm.questionMode} questions. Added to list.`);
     } catch (err) {
-      setError("Failed to generate questions. Please try again.");
+      setError("Failed to generate questions. Ensure content is sufficient.");
     } finally {
       setLoading(false);
     }
@@ -192,6 +291,8 @@ const CbtPortal: React.FC<CbtPortalProps> = ({ onBack }) => {
         session: new Date().getFullYear().toString(), // Simplified session
         durationMinutes: assessmentForm.duration,
         type: assessmentForm.type,
+        questionMode: assessmentForm.questionMode,
+        instructions: assessmentForm.instructions,
         questions: assessmentForm.generatedQuestions,
         createdAt: new Date().toISOString(),
         status: 'active'
@@ -199,11 +300,82 @@ const CbtPortal: React.FC<CbtPortalProps> = ({ onBack }) => {
 
       await addDoc(collection(db, 'CBT Assessments'), assessmentPayload);
       setSuccess(`Assessment Created! EXAM CODE: ${examCode}`);
-      setAssessmentForm(prev => ({ ...prev, generatedQuestions: [], notes: '' })); // Reset
+      // Only reset notes/instructions, keep questions visible for a moment or give option to clear
+      setAssessmentForm(prev => ({ ...prev, generatedQuestions: [], notes: '', instructions: '' })); 
     } catch (err) {
       setError("Failed to save assessment.");
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleDownloadPDF = () => {
+    if (!window.html2pdf || !questionsPrintRef.current) return;
+    const element = questionsPrintRef.current;
+    
+    const filename = `${assessmentForm.subject}_${assessmentForm.classLevel}_Questions.pdf`;
+
+    const opt = {
+      margin: 10,
+      filename: filename,
+      image: { type: 'jpeg', quality: 0.98 },
+      html2canvas: { scale: 2, useCORS: true },
+      jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+    };
+    window.html2pdf().set(opt).from(element).save();
+  };
+
+  const handleDownloadHistoryPDF = () => {
+      if (!window.html2pdf || !historyPrintRef.current || !viewingHistoryItem) return;
+      const element = historyPrintRef.current;
+      const filename = `${viewingHistoryItem.subject}_${viewingHistoryItem.examCode}_Questions.pdf`;
+
+      const opt = {
+        margin: 10,
+        filename: filename,
+        image: { type: 'jpeg', quality: 0.98 },
+        html2canvas: { scale: 2, useCORS: true },
+        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+      };
+      window.html2pdf().set(opt).from(element).save();
+  };
+
+  const handleDownloadStudentResult = () => {
+    if (!window.html2pdf || !studentResultPrintRef.current || !student || !activeAssessment) return;
+    
+    const element = studentResultPrintRef.current;
+    const filename = `${student.studentName}_${activeAssessment.subject}_Result.pdf`;
+
+    const opt = {
+      margin: 10,
+      filename: filename,
+      image: { type: 'jpeg', quality: 0.98 },
+      html2canvas: { scale: 2, useCORS: true },
+      jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+    };
+    window.html2pdf().set(opt).from(element).save();
+  };
+
+  const handleCopyCode = (code: string) => {
+    navigator.clipboard.writeText(code);
+    alert("Exam code copied to clipboard!");
+  };
+
+  const handleViewResults = async () => {
+    if (!resultExamCode) return;
+    setLoading(true);
+    setExamResults([]);
+    try {
+        const q = query(collection(db, 'Exam Logs'), where("examCode", "==", resultExamCode.trim()));
+        const snap = await getDocs(q);
+        const results = snap.docs.map(doc => ({ ...doc.data() as ExamLog }));
+        if (results.length === 0) setError("No results found for this code.");
+        else setExamResults(results);
+    } catch (err) {
+        console.error(err);
+        setError("Failed to fetch results.");
+    } finally {
+        setLoading(false);
     }
   };
 
@@ -253,7 +425,13 @@ const CbtPortal: React.FC<CbtPortalProps> = ({ onBack }) => {
     setExamSubmitted(true);
     setLoading(true);
 
-    // Calculate Score
+    if (activeAssessment.questionMode === 'theory') {
+        setSuccess("Essay submitted successfully! Results will be pending teacher review.");
+        setLoading(false);
+        return;
+    }
+
+    // Calculate Score (Objective & Comprehension)
     let correctCount = 0;
     activeAssessment.questions.forEach(q => {
       if (answers[q.id] === q.correctAnswer) {
@@ -267,25 +445,39 @@ const CbtPortal: React.FC<CbtPortalProps> = ({ onBack }) => {
     let maxScore = activeAssessment.type === 'exam' ? 60 : 20;
     const finalScore = Math.round((percentage / 100) * maxScore);
 
-    setScoreData({
+    const resultPayload = {
       score: finalScore,
       total: maxScore,
       percentage: Math.round(percentage)
-    });
+    };
+
+    setScoreData(resultPayload);
 
     try {
-      // Update Result Data in Firebase
+      // 1. Log the Exam Submission for Teacher View
+      const examLog: ExamLog = {
+          examCode: activeAssessment.examCode,
+          studentName: student.studentName,
+          admissionNumber: student.admissionNumber,
+          score: finalScore,
+          total: maxScore,
+          percentage: Math.round(percentage),
+          submittedAt: new Date().toISOString(),
+          subject: activeAssessment.subject,
+          type: activeAssessment.type
+      };
+      await addDoc(collection(db, 'Exam Logs'), examLog);
+
+      // 2. Update Result Sheet Data
       const qResult = query(collection(db, 'Result Data'), 
         where("schoolId", "==", student.schoolId),
         where("admissionNumber", "==", student.admissionNumber),
         where("term", "==", activeAssessment.term)
-        // Note: Ideally filter by session too
       );
       
       const resultSnap = await getDocs(qResult);
       
       if (!resultSnap.empty) {
-        // Update existing result sheet
         const docRef = resultSnap.docs[0].ref;
         const resultData = resultSnap.docs[0].data() as ResultData;
         
@@ -293,18 +485,13 @@ const CbtPortal: React.FC<CbtPortalProps> = ({ onBack }) => {
         const subIndex = subjects.findIndex(s => s.name === activeAssessment.subject);
         
         if (subIndex > -1) {
-          // Update existing subject
-          // We cast to any to update dynamic key 'ca1', 'ca2', 'exam'
           (subjects[subIndex] as any)[activeAssessment.type] = finalScore;
-          
-          // Recalculate Total
           const s = subjects[subIndex];
           const ca1 = Number(s.ca1) || 0;
           const ca2 = Number(s.ca2) || 0;
           const exam = Number(s.exam) || 0;
-          subjects[subIndex].total = ca1 + ca2 + exam; // Note: one of these is the new score
+          subjects[subIndex].total = ca1 + ca2 + exam; 
         } else {
-          // Add new subject
           const newSub: any = {
             name: activeAssessment.subject,
             selectedSubject: activeAssessment.subject,
@@ -316,13 +503,7 @@ const CbtPortal: React.FC<CbtPortalProps> = ({ onBack }) => {
         
         await updateDoc(docRef, { subjects, updatedAt: new Date().toISOString() });
       } else {
-        // Create new Partial Result Sheet
-        // This is complex, usually we'd want a result sheet to exist first.
-        // For now, we'll just log it or maybe create a placeholder.
-        // DECISION: Only update if Result Sheet exists to ensure data integrity.
-        // User should "Create Result" first.
-        console.warn("Result sheet not found, could not auto-update score.");
-        setSuccess("Score calculated, but Result Sheet not found to update. Please inform admin.");
+        setSuccess("Score recorded in Exam Log, but Term Result Sheet not found to update.");
         setLoading(false);
         return;
       }
@@ -467,14 +648,191 @@ const CbtPortal: React.FC<CbtPortalProps> = ({ onBack }) => {
   // Teacher Dashboard
   if (mode === 'teacher_dash' && teacher) {
     return (
-      <div className="max-w-4xl mx-auto p-4 animate-fade-in">
-        <div className="flex justify-between items-center mb-6">
+      <div className="max-w-4xl mx-auto p-4 animate-fade-in relative">
+        {/* View Results Modal */}
+        {showResultModal && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+                <div className="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-lg h-[80vh] flex flex-col">
+                    <div className="flex justify-between items-center mb-4">
+                        <h3 className="font-bold text-lg text-gray-800 flex items-center gap-2"><Users /> Student Results</h3>
+                        <button onClick={() => setShowResultModal(false)} className="text-gray-400 hover:text-gray-600">✕</button>
+                    </div>
+                    <div className="flex gap-2 mb-4">
+                        <input 
+                            type="text" 
+                            className="flex-1 p-2 border rounded outline-none uppercase"
+                            placeholder="Enter Exam Code (e.g. A3F8K9)"
+                            value={resultExamCode}
+                            onChange={(e) => setResultExamCode(e.target.value)}
+                        />
+                        <button onClick={handleViewResults} className="bg-blue-600 text-white px-4 rounded font-bold hover:bg-blue-700">{loading ? <Loader2 className="animate-spin"/> : 'Search'}</button>
+                    </div>
+                    
+                    <div className="flex-1 overflow-y-auto border rounded-lg bg-gray-50">
+                        <table className="w-full text-sm text-left">
+                            <thead className="bg-white text-gray-600 sticky top-0 shadow-sm">
+                                <tr>
+                                    <th className="p-3">Name</th>
+                                    <th className="p-3">Score</th>
+                                    <th className="p-3">Date</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y">
+                                {examResults.length > 0 ? examResults.map((res, i) => (
+                                    <tr key={i} className="hover:bg-gray-50 bg-white">
+                                        <td className="p-3">
+                                            <div className="font-bold">{res.studentName}</div>
+                                            <div className="text-xs text-gray-500">{res.admissionNumber}</div>
+                                        </td>
+                                        <td className="p-3">
+                                            <div className="font-bold text-blue-600">{res.score}/{res.total}</div>
+                                            <div className="text-xs text-gray-400">{res.percentage}%</div>
+                                        </td>
+                                        <td className="p-3 text-xs text-gray-500">
+                                            {new Date(res.submittedAt).toLocaleDateString()}
+                                        </td>
+                                    </tr>
+                                )) : (
+                                    <tr><td colSpan={3} className="p-4 text-center text-gray-500">No results found or search not initiated.</td></tr>
+                                )}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        )}
+
+        {/* View History Detail Modal */}
+        {viewingHistoryItem && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+                <div className="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-3xl max-h-[90vh] flex flex-col">
+                     <div className="flex justify-between items-center mb-4 border-b pb-2">
+                        <div>
+                            <h3 className="font-bold text-lg text-gray-800">{viewingHistoryItem.subject} - {viewingHistoryItem.type.toUpperCase()}</h3>
+                            <p className="text-xs text-gray-500">Code: {viewingHistoryItem.examCode}</p>
+                        </div>
+                        <div className="flex gap-2">
+                            <button onClick={handleDownloadHistoryPDF} className="bg-purple-600 text-white px-3 py-1.5 rounded-lg text-sm font-bold flex items-center gap-1 hover:bg-purple-700">
+                                <FileDown size={14}/> PDF
+                            </button>
+                            <button onClick={() => setViewingHistoryItem(null)} className="text-gray-400 hover:text-gray-600"><X size={24}/></button>
+                        </div>
+                    </div>
+                    <div className="flex-1 overflow-y-auto p-4 bg-gray-50 rounded border">
+                         <div className="mb-4 text-sm text-gray-700 italic border-b pb-2">
+                            <strong>Instructions:</strong> {viewingHistoryItem.instructions || 'None'}
+                         </div>
+                         {viewingHistoryItem.questions.map((q, i) => (
+                            <div key={i} className="bg-white p-4 mb-3 rounded-lg shadow-sm border border-gray-100">
+                                <p className="font-bold text-sm text-gray-800 mb-2">{i+1}. {q.questionText}</p>
+                                {q.options && q.options.length > 0 && (
+                                    <ul className="grid grid-cols-2 gap-2 text-xs">
+                                        {q.options.map((opt, idx) => (
+                                            <li key={idx} className={`p-2 rounded ${opt === q.correctAnswer ? 'bg-green-100 text-green-800 font-bold' : 'bg-gray-50 text-gray-600'}`}>
+                                                <span className="font-bold mr-1">{String.fromCharCode(65 + idx)}.</span> {opt}
+                                            </li>
+                                        ))}
+                                    </ul>
+                                )}
+                                {!q.options && <p className="text-xs text-green-700 mt-1 bg-green-50 p-2 rounded inline-block"><strong>Answer:</strong> {q.correctAnswer}</p>}
+                            </div>
+                         ))}
+                    </div>
+                    <div className="mt-4 flex justify-end gap-2">
+                         <button onClick={() => handleCopyCode(viewingHistoryItem.examCode)} className="bg-gray-100 text-gray-700 px-4 py-2 rounded text-sm font-bold border hover:bg-gray-200">Copy Exam Code</button>
+                    </div>
+                </div>
+            </div>
+        )}
+
+        {/* Hidden Container for History PDF Generation */}
+        <div className="fixed top-0 left-0 -z-50 invisible pointer-events-none">
+            {viewingHistoryItem && (
+                <div ref={historyPrintRef} style={{ width: '210mm', minHeight: '297mm', background: 'white', padding: '15mm', fontFamily: 'serif', color: 'black' }}>
+                    <div style={{ textAlign: 'center', marginBottom: '10mm', borderBottom: '2px solid black', paddingBottom: '5mm' }}>
+                        <h1 style={{ fontSize: '24px', fontWeight: 'bold', textTransform: 'uppercase' }}>{teacher.schoolName || "School Assessment"}</h1>
+                        <h2 style={{ fontSize: '18px', fontWeight: 'bold', marginTop: '5px' }}>{viewingHistoryItem.subject} - {viewingHistoryItem.type.toUpperCase()}</h2>
+                        <p style={{ fontSize: '14px' }}>Class: {viewingHistoryItem.classLevel} | Duration: {viewingHistoryItem.durationMinutes} Mins</p>
+                    </div>
+                    {viewingHistoryItem.instructions && (
+                        <div style={{ marginBottom: '8mm', fontStyle: 'italic', fontSize: '12px' }}>
+                            <strong>Instructions:</strong> {viewingHistoryItem.instructions}
+                        </div>
+                    )}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '5mm' }}>
+                        {viewingHistoryItem.questions.map((q, i) => (
+                            <div key={i} style={{ pageBreakInside: 'avoid' }}>
+                                <div style={{ fontWeight: 'bold', marginBottom: '2mm' }}>{i + 1}. {q.questionText}</div>
+                                {q.options && q.options.length > 0 ? (
+                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '2mm', fontSize: '12px' }}>
+                                        {q.options.map((opt, idx) => (
+                                            <div key={idx} style={{ display: 'flex', gap: '5px' }}>
+                                                <span>{String.fromCharCode(65 + idx)}.</span>
+                                                <span>{opt}</span>
+                                            </div>
+                                        ))}
+                                    </div>
+                                ) : (
+                                    <div style={{ height: '20mm', borderBottom: '1px dotted black', marginTop: '5mm' }}></div>
+                                )}
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
+        </div>
+
+        <div className="flex flex-wrap gap-4 justify-between items-center mb-6">
            <div>
              <h2 className="text-2xl font-bold text-gray-800">Welcome, {teacher.teacherName}</h2>
              <p className="text-gray-500 text-sm">{teacher.schoolName}</p>
            </div>
-           <button onClick={() => { setTeacher(null); setMode('selection'); setManualTeacherId(''); }} className="text-red-500 font-bold text-sm hover:underline">Logout</button>
+           <div className="flex gap-4 items-center">
+             <button onClick={() => setShowResultModal(true)} className="flex items-center gap-2 bg-blue-50 text-blue-600 px-4 py-2 rounded-lg font-bold hover:bg-blue-100 transition">
+                <Users size={18} /> View Results
+             </button>
+             <button onClick={() => { setTeacher(null); setMode('selection'); setManualTeacherId(''); }} className="text-red-500 font-bold text-sm hover:underline">Logout</button>
+           </div>
         </div>
+        
+        {/* NEW SECTION: Teacher's Assessment History */}
+        {myAssessments.length > 0 && (
+            <div className="bg-white rounded-xl shadow-lg p-6 mb-6">
+                <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center gap-2"><ClipboardList size={18} /> My Generated Assessments</h3>
+                <div className="overflow-x-auto">
+                    <table className="w-full text-sm text-left">
+                        <thead className="bg-gray-50 text-gray-600 border-b">
+                            <tr>
+                                <th className="p-3">Exam Code</th>
+                                <th className="p-3">Subject</th>
+                                <th className="p-3">Class</th>
+                                <th className="p-3">Type</th>
+                                <th className="p-3">Questions</th>
+                                <th className="p-3">Action</th>
+                            </tr>
+                        </thead>
+                        <tbody className="divide-y">
+                            {myAssessments.map((assess) => (
+                                <tr key={assess.id} className="hover:bg-gray-50">
+                                    <td className="p-3 font-mono font-bold text-purple-600 cursor-pointer" onClick={() => handleCopyCode(assess.examCode)} title="Click to Copy">
+                                        {assess.examCode}
+                                    </td>
+                                    <td className="p-3 font-medium">{assess.subject}</td>
+                                    <td className="p-3">{assess.classLevel}</td>
+                                    <td className="p-3 uppercase text-xs">{assess.type}</td>
+                                    <td className="p-3 text-center">{assess.questions.length}</td>
+                                    <td className="p-3">
+                                        <button onClick={() => setViewingHistoryItem(assess)} className="text-blue-600 hover:text-blue-800 flex items-center gap-1">
+                                            <Eye size={16} /> View
+                                        </button>
+                                    </td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        )}
 
         <div className="bg-white rounded-xl shadow-lg p-6 mb-6">
            <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center gap-2"><Upload size={18} /> Create New Assessment</h3>
@@ -495,15 +853,31 @@ const CbtPortal: React.FC<CbtPortalProps> = ({ onBack }) => {
                 <label className="text-xs font-bold text-gray-500 uppercase">Subject</label>
                 <select 
                   className="w-full p-2 border rounded bg-white"
-                  value={assessmentForm.subject}
-                  onChange={e => setAssessmentForm({...assessmentForm, subject: e.target.value})}
+                  value={assessmentForm.selectedSubject}
+                  onChange={e => {
+                      const val = e.target.value;
+                      setAssessmentForm(prev => ({
+                          ...prev, 
+                          selectedSubject: val,
+                          subject: val === 'Others' ? '' : val 
+                      }));
+                  }}
                 >
                    <option value="">Select Subject</option>
                    {ALL_NIGERIAN_SUBJECTS.map(s => <option key={s} value={s}>{s}</option>)}
                 </select>
+                {assessmentForm.selectedSubject === 'Others' && (
+                    <input 
+                        type="text" 
+                        placeholder="Enter Subject Name" 
+                        value={assessmentForm.subject} 
+                        onChange={e => setAssessmentForm(prev => ({...prev, subject: e.target.value}))}
+                        className="w-full p-2 mt-1 border rounded outline-none bg-yellow-50 border-yellow-200"
+                    />
+                )}
              </div>
              <div>
-                <label className="text-xs font-bold text-gray-500 uppercase">Assessment Type</label>
+                <label className="text-xs font-bold text-gray-500 uppercase">Assessment Category</label>
                 <select 
                   className="w-full p-2 border rounded bg-white"
                   value={assessmentForm.type}
@@ -525,99 +899,308 @@ const CbtPortal: React.FC<CbtPortalProps> = ({ onBack }) => {
              </div>
            </div>
 
+           {/* Question Format Buttons */}
            <div className="mb-4">
-              <label className="text-xs font-bold text-gray-500 uppercase mb-2 block">Lesson Notes / Topic Content</label>
-              <textarea 
-                 className="w-full p-3 border rounded-lg h-32 text-sm focus:ring-2 focus:ring-purple-500 outline-none"
-                 placeholder="Paste your lesson notes, topic summary, or manually typed questions here. The AI will generate multiple choice questions from this text."
-                 value={assessmentForm.notes}
-                 onChange={e => setAssessmentForm({...assessmentForm, notes: e.target.value})}
-              ></textarea>
+               <label className="text-xs font-bold text-gray-500 uppercase mb-2 block">Question Format (Continuous)</label>
+               <div className="grid grid-cols-3 gap-2">
+                   <button 
+                       onClick={() => setAssessmentForm({...assessmentForm, questionMode: 'objective'})}
+                       className={`p-3 rounded-lg font-bold text-sm flex flex-col items-center gap-1 border-2 transition ${assessmentForm.questionMode === 'objective' ? 'border-purple-600 bg-purple-50 text-purple-700' : 'border-gray-200 bg-white text-gray-500 hover:border-purple-200'}`}
+                   >
+                       <Layers size={20} /> Objective
+                   </button>
+                   <button 
+                       onClick={() => setAssessmentForm({...assessmentForm, questionMode: 'theory'})}
+                       className={`p-3 rounded-lg font-bold text-sm flex flex-col items-center gap-1 border-2 transition ${assessmentForm.questionMode === 'theory' ? 'border-blue-600 bg-blue-50 text-blue-700' : 'border-gray-200 bg-white text-gray-500 hover:border-blue-200'}`}
+                   >
+                       <Type size={20} /> Essay / Theory
+                   </button>
+                   <button 
+                       onClick={() => setAssessmentForm({...assessmentForm, questionMode: 'comprehension'})}
+                       className={`p-3 rounded-lg font-bold text-sm flex flex-col items-center gap-1 border-2 transition ${assessmentForm.questionMode === 'comprehension' ? 'border-orange-600 bg-orange-50 text-orange-700' : 'border-gray-200 bg-white text-gray-500 hover:border-orange-200'}`}
+                   >
+                       <AlignLeft size={20} /> Comprehension
+                   </button>
+               </div>
+           </div>
+
+           {/* Dynamic Fields based on Mode */}
+           <div className="bg-gray-50 p-4 rounded-lg border border-gray-200 space-y-4">
+               <div>
+                  <label className="text-xs font-bold text-gray-600 uppercase block mb-1">
+                      {assessmentForm.questionMode} Instructions
+                  </label>
+                  <textarea 
+                      className="w-full p-2 border rounded text-sm h-16 bg-white focus:ring-1 focus:ring-black outline-none"
+                      placeholder={`Enter instructions for ${assessmentForm.questionMode} section...`}
+                      value={assessmentForm.instructions}
+                      onChange={e => setAssessmentForm({...assessmentForm, instructions: e.target.value})}
+                  />
+               </div>
+               
+               <div>
+                  <label className="text-xs font-bold text-gray-600 uppercase block mb-1">
+                      Number of Questions to Generate
+                  </label>
+                  <input 
+                      type="number" 
+                      min={1} 
+                      max={50}
+                      className="w-full p-2 border rounded bg-white w-24 focus:ring-1 focus:ring-black outline-none"
+                      value={assessmentForm.questionCount}
+                      onChange={e => setAssessmentForm({...assessmentForm, questionCount: Number(e.target.value)})}
+                  />
+               </div>
+
+               <div>
+                  <label className="text-xs font-bold text-gray-600 uppercase mb-2 block flex items-center gap-2">
+                      <Calculator size={14}/> 
+                      {assessmentForm.questionMode === 'comprehension' ? 'Passage Content' : 'Lesson Notes / Topic Content'}
+                  </label>
+                  
+                  {/* Math/Symbol Toolbar */}
+                  <div className="flex flex-wrap gap-1.5 mb-2 p-2 bg-white border border-gray-200 rounded-lg">
+                    {MATH_SYMBOLS.map(s => (
+                        <button 
+                            key={s} 
+                            onClick={() => insertSymbol(s)}
+                            className="w-8 h-8 flex items-center justify-center bg-gray-50 border border-gray-200 rounded hover:bg-purple-600 hover:text-white hover:border-purple-600 transition text-sm font-serif shadow-sm"
+                            title="Insert Symbol"
+                        >
+                            {s}
+                        </button>
+                    ))}
+                  </div>
+
+                  <textarea 
+                     id="cbt-notes-input"
+                     className="w-full p-3 border rounded-lg h-40 text-sm focus:ring-2 focus:ring-purple-500 outline-none font-mono bg-white"
+                     placeholder={assessmentForm.questionMode === 'comprehension' ? "Paste the comprehension passage here..." : "Paste lesson notes or topic summary here. AI will strictly use this content to generate questions."}
+                     value={assessmentForm.notes}
+                     onChange={e => setAssessmentForm({...assessmentForm, notes: e.target.value})}
+                  ></textarea>
+                  <p className="text-[10px] text-gray-500 mt-1 flex items-center gap-1">
+                     <BrainCircuit size={10} /> Questions will be generated from content and <b>appended</b> to the list.
+                  </p>
+               </div>
            </div>
            
            <button 
              onClick={handleGenerateQuestions} 
              disabled={loading}
-             className="bg-purple-600 text-white px-6 py-2 rounded-lg font-bold flex items-center gap-2 hover:bg-purple-700 disabled:opacity-50 shadow-md transition"
+             className="w-full mt-4 bg-purple-600 text-white px-6 py-3 rounded-lg font-bold flex items-center justify-center gap-2 hover:bg-purple-700 disabled:opacity-50 shadow-md transition"
            >
              {loading ? <Loader2 className="animate-spin" size={18} /> : <BrainCircuit size={18} />} 
-             Generate Questions with AI
+             Generate & Add {assessmentForm.questionCount} {assessmentForm.questionMode} Questions
            </button>
 
-           {success && <div className="mt-4 bg-green-50 text-green-700 p-3 rounded font-bold border border-green-200">{success}</div>}
+           {success && (
+               <div className="mt-4 bg-green-50 text-green-700 p-3 rounded font-bold border border-green-200 flex items-center gap-2">
+                   <CheckCircle size={18} />
+                   <span>{success}</span>
+                   {success.includes("CODE:") && (
+                       <button 
+                        onClick={() => handleCopyCode(success.split('CODE: ')[1])}
+                        className="ml-2 bg-green-200 hover:bg-green-300 text-green-800 p-1 rounded transition"
+                        title="Copy Code"
+                       >
+                           <Copy size={16} />
+                       </button>
+                   )}
+               </div>
+           )}
            {error && <div className="mt-4 bg-red-50 text-red-700 p-3 rounded font-bold border border-red-200">{error}</div>}
         </div>
 
-        {/* Generated Questions Review */}
+        {/* Generated Questions Review (Editable) */}
         {assessmentForm.generatedQuestions.length > 0 && (
            <div className="bg-white rounded-xl shadow-lg p-6 animate-slide-up">
-              <div className="flex justify-between items-center mb-4">
+              <div className="flex justify-between items-center mb-4 flex-wrap gap-2">
                  <h3 className="text-lg font-bold text-gray-800">Review Questions ({assessmentForm.generatedQuestions.length})</h3>
-                 <button 
-                    onClick={handleSaveAssessment}
-                    disabled={loading}
-                    className="bg-green-600 text-white px-6 py-2 rounded-lg font-bold flex items-center gap-2 hover:bg-green-700 shadow-md transition"
-                 >
-                    <Save size={18} /> Save & Publish Assessment
-                 </button>
+                 <div className="flex gap-2">
+                    <button 
+                        onClick={() => setAssessmentForm(prev => ({...prev, generatedQuestions: []}))}
+                        className="bg-red-50 text-red-600 px-4 py-2 rounded-lg font-bold flex items-center gap-2 hover:bg-red-100 transition text-xs"
+                    >
+                        <Trash2 size={16} /> Clear All
+                    </button>
+                    <button 
+                        onClick={() => handleDownloadPDF()}
+                        className="bg-blue-600 text-white px-4 py-2 rounded-lg font-bold flex items-center gap-2 hover:bg-blue-700 shadow-md transition text-xs"
+                    >
+                        <FileDown size={16} /> Download PDF
+                    </button>
+                    <button 
+                        onClick={handleSaveAssessment}
+                        disabled={loading}
+                        className="bg-green-600 text-white px-4 py-2 rounded-lg font-bold flex items-center gap-2 hover:bg-green-700 shadow-md transition text-xs"
+                    >
+                        <Save size={16} /> Save & Publish
+                    </button>
+                 </div>
               </div>
-              <div className="space-y-4 max-h-[400px] overflow-y-auto">
+              <div className="space-y-4 max-h-[600px] overflow-y-auto border p-2 rounded-lg bg-gray-50">
                  {assessmentForm.generatedQuestions.map((q, i) => (
-                    <div key={i} className="p-4 border rounded-lg bg-gray-50">
-                       <p className="font-bold text-gray-800 mb-2">{i+1}. {q.questionText}</p>
-                       <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                          {q.options.map((opt, idx) => (
-                             <div key={idx} className={`text-sm p-2 rounded ${opt === q.correctAnswer ? 'bg-green-200 text-green-800 font-bold' : 'bg-white border'}`}>
-                                {opt}
-                             </div>
-                          ))}
+                    <div key={i} className="p-4 border rounded-lg bg-white relative group">
+                       <button 
+                            onClick={() => handleRemoveQuestion(i)} 
+                            className="absolute top-2 right-2 text-red-300 hover:text-red-500 transition opacity-0 group-hover:opacity-100"
+                            title="Remove Question"
+                       >
+                           <X size={16} />
+                       </button>
+                       <div className="mb-2">
+                           <label className="text-[10px] font-bold text-gray-400 uppercase">Question {i+1}</label>
+                           <textarea 
+                                value={q.questionText}
+                                onChange={(e) => handleUpdateQuestion(i, 'text', e.target.value)}
+                                className="w-full p-2 border rounded text-sm focus:ring-1 focus:ring-purple-500 outline-none"
+                                rows={2}
+                           />
+                       </div>
+                       
+                       {q.options && q.options.length > 0 ? (
+                           <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                              {q.options.map((opt, idx) => (
+                                 <div key={idx} className="flex items-center gap-2">
+                                     <span className="font-bold text-gray-400 text-xs w-4">{String.fromCharCode(65 + idx)}.</span>
+                                     <input 
+                                        type="text"
+                                        value={opt}
+                                        onChange={(e) => handleUpdateQuestion(i, 'option', e.target.value, idx)}
+                                        className={`flex-1 p-2 border rounded text-xs focus:ring-1 focus:ring-blue-500 outline-none ${opt === q.correctAnswer ? 'border-green-400 bg-green-50' : ''}`}
+                                     />
+                                 </div>
+                              ))}
+                           </div>
+                       ) : null}
+
+                       <div className="mt-3">
+                           <label className="text-[10px] font-bold text-gray-400 uppercase">Correct Answer</label>
+                            {q.options && q.options.length > 0 ? (
+                                <select 
+                                    value={q.correctAnswer}
+                                    onChange={(e) => handleUpdateQuestion(i, 'correct', e.target.value)}
+                                    className="w-full p-2 border rounded text-xs bg-gray-50 outline-none"
+                                >
+                                    {q.options.map((opt, idx) => (
+                                        <option key={idx} value={opt}>{opt}</option>
+                                    ))}
+                                </select>
+                            ) : (
+                                <input 
+                                    type="text"
+                                    value={q.correctAnswer}
+                                    onChange={(e) => handleUpdateQuestion(i, 'correct', e.target.value)}
+                                    className="w-full p-2 border rounded text-xs bg-green-50 border-green-200 outline-none"
+                                    placeholder="Model Answer / Marking Guide"
+                                />
+                            )}
                        </div>
                     </div>
                  ))}
               </div>
            </div>
         )}
+
+        {/* Hidden Container for PDF Generation */}
+        <div className="fixed top-0 left-0 -z-50 invisible pointer-events-none">
+            <div ref={questionsPrintRef} style={{ width: '210mm', minHeight: '297mm', background: 'white', padding: '15mm', fontFamily: 'serif', color: 'black' }}>
+                <div style={{ textAlign: 'center', marginBottom: '10mm', borderBottom: '2px solid black', paddingBottom: '5mm' }}>
+                    <h1 style={{ fontSize: '24px', fontWeight: 'bold', textTransform: 'uppercase' }}>{teacher.schoolName || "School Assessment"}</h1>
+                    <h2 style={{ fontSize: '18px', fontWeight: 'bold', marginTop: '5px' }}>{assessmentForm.subject} - {assessmentForm.type.toUpperCase()}</h2>
+                    <p style={{ fontSize: '14px' }}>Class: {assessmentForm.classLevel} | Duration: {assessmentForm.duration} Mins</p>
+                </div>
+                {assessmentForm.instructions && (
+                    <div style={{ marginBottom: '8mm', fontStyle: 'italic', fontSize: '12px' }}>
+                        <strong>Instructions:</strong> {assessmentForm.instructions}
+                    </div>
+                )}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '5mm' }}>
+                    {assessmentForm.generatedQuestions.map((q, i) => (
+                        <div key={i} style={{ pageBreakInside: 'avoid' }}>
+                            <div style={{ fontWeight: 'bold', marginBottom: '2mm' }}>{i + 1}. {q.questionText}</div>
+                            {q.options && q.options.length > 0 ? (
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '2mm', fontSize: '12px' }}>
+                                    {q.options.map((opt, idx) => (
+                                        <div key={idx} style={{ display: 'flex', gap: '5px' }}>
+                                            <span>{String.fromCharCode(65 + idx)}.</span>
+                                            <span>{opt}</span>
+                                        </div>
+                                    ))}
+                                </div>
+                            ) : (
+                                <div style={{ height: '20mm', borderBottom: '1px dotted black', marginTop: '5mm' }}></div>
+                            )}
+                        </div>
+                    ))}
+                </div>
+            </div>
+        </div>
       </div>
     );
   }
 
   // Student Exam Mode
   if (mode === 'student_exam' && student) {
-    if (activeAssessment && !scoreData) {
+    if (activeAssessment && !scoreData && !examSubmitted) {
        // --- TAKING EXAM ---
+       const isTheory = activeAssessment.questionMode === 'theory';
+       
        return (
          <div className="max-w-3xl mx-auto p-4 animate-fade-in pb-20">
             {/* Header */}
-            <div className="bg-white p-4 rounded-xl shadow-sm border-b sticky top-0 z-10 flex justify-between items-center mb-6">
+            <div className="bg-white p-4 rounded-xl shadow-sm border-b sticky top-0 z-10 flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
                <div>
                   <h2 className="font-bold text-gray-800">{activeAssessment.subject} <span className="text-gray-400 text-sm font-normal">| {activeAssessment.type.toUpperCase()}</span></h2>
                   <p className="text-xs text-gray-500">Student: {student.studentName}</p>
                </div>
-               <div className={`flex items-center gap-2 px-4 py-2 rounded-lg font-mono font-bold text-xl ${timeLeft < 60 ? 'bg-red-100 text-red-600 animate-pulse' : 'bg-gray-100 text-gray-800'}`}>
-                  <Clock size={20} /> {formatTime(timeLeft)}
+               <div className="text-right">
+                 <div className={`flex items-center gap-2 px-4 py-2 rounded-lg font-mono font-bold text-xl ${timeLeft < 60 ? 'bg-red-100 text-red-600 animate-pulse' : 'bg-gray-100 text-gray-800'}`}>
+                    <Clock size={20} /> {formatTime(timeLeft)}
+                 </div>
+                 <p className="text-xs font-mono font-bold text-gray-400 mt-1">CODE: {activeAssessment.examCode}</p>
                </div>
             </div>
+            
+            {activeAssessment.instructions && (
+                <div className="bg-yellow-50 border border-yellow-200 p-3 rounded-lg mb-4 text-sm text-yellow-800 flex items-start gap-2">
+                    <BookOpen size={16} className="shrink-0 mt-0.5" />
+                    <p><strong>Instructions:</strong> {activeAssessment.instructions}</p>
+                </div>
+            )}
 
             {/* Questions */}
             <div className="space-y-6">
                {activeAssessment.questions.map((q, i) => (
                   <div key={q.id} className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
                      <p className="font-bold text-lg text-gray-800 mb-4"><span className="text-blue-500 mr-2">{i+1}.</span>{q.questionText}</p>
-                     <div className="space-y-2">
-                        {q.options.map((opt, idx) => (
-                           <label key={idx} className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer hover:bg-gray-50 transition ${answers[q.id] === opt ? 'border-blue-500 bg-blue-50 ring-1 ring-blue-500' : 'border-gray-200'}`}>
-                              <input 
-                                type="radio" 
-                                name={`q-${q.id}`} 
-                                value={opt} 
-                                checked={answers[q.id] === opt}
-                                onChange={() => setAnswers(prev => ({...prev, [q.id]: opt}))}
-                                className="w-5 h-5 text-blue-600"
-                              />
-                              <span className="text-gray-700">{opt}</span>
-                           </label>
-                        ))}
-                     </div>
+                     
+                     {!q.options || q.options.length === 0 ? (
+                        <textarea 
+                            className="w-full p-3 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none min-h-[120px]"
+                            placeholder="Type your answer here..."
+                            value={answers[q.id] || ''}
+                            onChange={(e) => setAnswers(prev => ({...prev, [q.id]: e.target.value}))}
+                        />
+                     ) : (
+                         <div className="space-y-2">
+                            {q.options?.map((opt, idx) => (
+                               <label key={idx} className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer hover:bg-gray-50 transition ${answers[q.id] === opt ? 'border-blue-500 bg-blue-50 ring-1 ring-blue-500' : 'border-gray-200'}`}>
+                                  <input 
+                                    type="radio" 
+                                    name={`q-${q.id}`} 
+                                    value={opt} 
+                                    checked={answers[q.id] === opt}
+                                    onChange={() => setAnswers(prev => ({...prev, [q.id]: opt}))}
+                                    className="w-5 h-5 text-blue-600"
+                                  />
+                                  <span className="font-bold text-gray-500 min-w-[20px]">{String.fromCharCode(65 + idx)}.</span>
+                                  <span className="text-gray-700">{opt}</span>
+                               </label>
+                            ))}
+                         </div>
+                     )}
                   </div>
                ))}
             </div>
@@ -634,8 +1217,10 @@ const CbtPortal: React.FC<CbtPortalProps> = ({ onBack }) => {
             </div>
          </div>
        );
-    } else if (scoreData) {
+    } else if (examSubmitted) {
        // --- RESULT SCREEN ---
+       const isTheory = activeAssessment?.questionMode === 'theory';
+       
        return (
           <div className="max-w-md mx-auto p-6 mt-10 text-center animate-slide-up">
              <div className="bg-white rounded-2xl shadow-xl p-8">
@@ -643,20 +1228,89 @@ const CbtPortal: React.FC<CbtPortalProps> = ({ onBack }) => {
                    <CheckCircle className="text-green-600" size={40} />
                 </div>
                 <h2 className="text-2xl font-bold text-gray-800 mb-2">Assessment Completed!</h2>
-                <p className="text-gray-500 mb-6">Your responses have been recorded and your result sheet updated.</p>
                 
-                <div className="bg-gray-50 p-6 rounded-xl mb-6">
-                   <p className="text-sm font-bold text-gray-500 uppercase">Your Score</p>
-                   <p className="text-5xl font-bold text-blue-600 my-2">{scoreData.score}<span className="text-xl text-gray-400">/{scoreData.total}</span></p>
-                   <p className="text-sm font-bold text-gray-400">{scoreData.percentage}% Accuracy</p>
-                </div>
+                {isTheory ? (
+                    <div className="bg-blue-50 p-6 rounded-xl mb-6 text-blue-800">
+                        <p className="font-bold">Submission Received.</p>
+                        <p className="text-sm mt-2">Your essay responses have been recorded for teacher grading.</p>
+                    </div>
+                ) : (
+                    <>
+                        <p className="text-gray-500 mb-6">Your responses have been recorded and your result sheet updated.</p>
+                        <div className="bg-gray-50 p-6 rounded-xl mb-6">
+                           <p className="text-sm font-bold text-gray-500 uppercase">Your Score</p>
+                           <p className="text-5xl font-bold text-blue-600 my-2">{scoreData?.score}<span className="text-xl text-gray-400">/{scoreData?.total}</span></p>
+                           <p className="text-sm font-bold text-gray-400">{scoreData?.percentage}% Accuracy</p>
+                        </div>
+                    </>
+                )}
+                
+                <button onClick={handleDownloadStudentResult} className="w-full mb-3 py-3 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 transition flex items-center justify-center gap-2">
+                   <FileDown size={18} /> Download Result PDF
+                </button>
 
                 {success && <p className="text-green-600 text-xs font-bold mb-4 bg-green-50 p-2 rounded">{success}</p>}
                 
-                <button onClick={() => { setStudent(null); setMode('selection'); setManualStudentId({schoolId:'',admissionNumber:''}); }} className="w-full py-3 bg-gray-900 text-white rounded-xl font-bold hover:bg-gray-800 transition">
+                <button onClick={() => { setStudent(null); setMode('selection'); setManualStudentId({schoolId:'',admissionNumber:''}); setExamSubmitted(false); }} className="w-full py-3 bg-gray-900 text-white rounded-xl font-bold hover:bg-gray-800 transition">
                    Return to Portal
                 </button>
              </div>
+             
+             {/* Hidden Student Result PDF Container */}
+             <div className="fixed top-0 left-0 -z-50 invisible pointer-events-none">
+                <div ref={studentResultPrintRef} style={{ width: '210mm', minHeight: '297mm', background: 'white', padding: '15mm', fontFamily: 'serif', color: 'black', textAlign: 'left' }}>
+                    <div style={{ textAlign: 'center', marginBottom: '10mm', borderBottom: '2px solid black', paddingBottom: '5mm' }}>
+                        <h1 style={{ fontSize: '24px', fontWeight: 'bold', textTransform: 'uppercase' }}>{student.schoolName || "School Assessment Result"}</h1>
+                        <h2 style={{ fontSize: '18px', fontWeight: 'bold', marginTop: '5px' }}>{activeAssessment?.subject} - Result Slip</h2>
+                        <div style={{ fontSize: '14px', marginTop: '5px' }}>
+                            <p><strong>Name:</strong> {student.studentName}</p>
+                            <p><strong>Exam Code:</strong> {activeAssessment?.examCode}</p>
+                            <p><strong>Score:</strong> {scoreData?.score} / {scoreData?.total} ({scoreData?.percentage}%)</p>
+                        </div>
+                    </div>
+
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '5mm' }}>
+                        {activeAssessment?.questions.map((q, i) => {
+                            const userAnswer = answers[q.id];
+                            const isCorrect = userAnswer === q.correctAnswer;
+                            
+                            return (
+                                <div key={i} style={{ pageBreakInside: 'avoid', borderBottom: '1px solid #eee', paddingBottom: '3mm' }}>
+                                    <div style={{ fontWeight: 'bold', marginBottom: '2mm', fontSize: '14px' }}>{i + 1}. {q.questionText}</div>
+                                    
+                                    {/* Options Display */}
+                                    {q.options && q.options.length > 0 ? (
+                                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '2mm', fontSize: '12px', marginBottom: '2mm' }}>
+                                            {q.options.map((opt, idx) => (
+                                                <div key={idx} style={{ display: 'flex', gap: '5px', color: opt === q.correctAnswer ? 'green' : (opt === userAnswer && !isCorrect ? 'red' : 'black') }}>
+                                                    <span style={{ fontWeight: 'bold' }}>{String.fromCharCode(65 + idx)}.</span>
+                                                    <span>{opt}</span>
+                                                    {opt === q.correctAnswer && <span style={{fontWeight:'bold'}}>(Correct)</span>}
+                                                    {opt === userAnswer && opt !== q.correctAnswer && <span style={{fontWeight:'bold'}}>(Your Choice)</span>}
+                                                </div>
+                                            ))}
+                                        </div>
+                                    ) : (
+                                        <div style={{ fontSize: '12px', marginBottom: '2mm' }}>
+                                            <p><strong>Your Answer:</strong> {userAnswer || '(No Answer)'}</p>
+                                            <p style={{ color: 'green' }}><strong>Correct Answer:</strong> {q.correctAnswer}</p>
+                                        </div>
+                                    )}
+
+                                    {/* Status Line */}
+                                    <div style={{ fontSize: '12px', marginTop: '1mm' }}>
+                                        {isCorrect ? 
+                                            <span style={{ color: 'green', fontWeight: 'bold' }}>✓ Correct</span> : 
+                                            <span style={{ color: 'red', fontWeight: 'bold' }}>✗ Incorrect</span>
+                                        }
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
+                </div>
+            </div>
+
           </div>
        );
     }

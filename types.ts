@@ -105,8 +105,8 @@ export interface TeacherData {
 export interface Question {
   id: number;
   questionText: string;
-  options: string[];
-  correctAnswer: string; // The correct option string
+  options?: string[]; // Made optional for Essay type
+  correctAnswer: string; // The correct option string or model answer
 }
 
 export type AssessmentType = 'ca1' | 'ca2' | 'exam';
@@ -122,9 +122,24 @@ export interface CbtAssessment {
   session: string;
   durationMinutes: number;
   type: AssessmentType;
+  questionMode?: 'objective' | 'theory' | 'comprehension'; // New field
+  instructions?: string; // New field
   questions: Question[];
   createdAt: string;
   status: 'active' | 'closed';
+}
+
+export interface ExamLog {
+  id?: string;
+  examCode: string;
+  studentName: string;
+  admissionNumber: string;
+  score: number;
+  total: number;
+  percentage: number;
+  submittedAt: string;
+  subject: string;
+  type: string;
 }
 
 export type ViewState = 'home' | 'create' | 'view-result' | 'admin-dashboard' | 'register-student' | 'register-school' | 'register-teacher' | 'super-admin-view' | 'admin-search' | 'attendance' | 'cbt-portal';
