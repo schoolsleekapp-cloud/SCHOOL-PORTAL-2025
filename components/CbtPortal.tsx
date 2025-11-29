@@ -17,6 +17,13 @@ import {
 import { CLASS_LEVELS, ALL_NIGERIAN_SUBJECTS } from '../constants';
 import QrScannerModal from './QrScannerModal';
 
+// Add html2pdf to window type
+declare global {
+  interface Window {
+    html2pdf: any;
+  }
+}
+
 interface CbtPortalProps {
   onBack: () => void;
 }
@@ -73,11 +80,28 @@ const CbtPortal: React.FC<CbtPortalProps> = ({ onBack }) => {
   const historyPrintRef = useRef<HTMLDivElement>(null);
   const studentResultPrintRef = useRef<HTMLDivElement>(null);
 
-  // Math Symbols
+  // Extended Math Symbols
   const MATH_SYMBOLS = [
-    '√', 'π', 'θ', '∞', '∫', '∑', '∂', '∆', 'μ', 'σ', 
-    '±', '≠', '≈', '≤', '≥', '÷', '×', '·', 
-    '²', '³', '½', '∈', '∀', '∃', '⇒', 'Ω', '°'
+    '±', '≠', '≈', '≤', '≥', '÷', '×', '·', '√', '∞', 
+    '²', '³', '½', '⅓', '¼', '¾',
+    'π', 'θ', 'α', 'β', 'γ', 'δ', 'ε', 'λ', 'μ', 'σ', 'φ', 'ω', 'Ω', '∆',
+    '∫', '∑', '∂', '∈', '∀', '∃', '⇒', '⇔', '∅', '°', '∠', '⊥', '∥'
+  ];
+
+  const EQUATION_TEMPLATES = [
+      { label: 'Fraction', val: '(a/b)' },
+      { label: 'Exponent', val: 'x^n' },
+      { label: 'Subscript', val: 'x₁' },
+      { label: 'Root', val: '√(x)' },
+      { label: 'Quadratic Eq', val: 'x = (-b ± √(b²-4ac))/2a' },
+      { label: 'Pythagoras', val: 'a² + b² = c²' },
+      { label: 'Area', val: 'A = πr²' },
+      { label: 'Volume', val: 'V = 4/3πr³' },
+      { label: 'Density', val: 'ρ = m/V' },
+      { label: 'Velocity', val: 'v = u + at' },
+      { label: 'Force', val: 'F = ma' },
+      { label: 'Energy', val: 'E = mc²' },
+      { label: 'Chem Eq', val: 'H₂ + O₂ → H₂O' }
   ];
 
   // --- TIMER LOGIC ---
@@ -746,7 +770,7 @@ const CbtPortal: React.FC<CbtPortalProps> = ({ onBack }) => {
         )}
 
         {/* Hidden Container for History PDF Generation */}
-        <div className="fixed top-0 left-0 -z-50 invisible pointer-events-none">
+        <div className="fixed top-0 left-0 -z-50 opacity-0 pointer-events-none">
             {viewingHistoryItem && (
                 <div ref={historyPrintRef} style={{ width: '210mm', minHeight: '297mm', background: 'white', padding: '15mm', fontFamily: 'serif', color: 'black' }}>
                     <div style={{ textAlign: 'center', marginBottom: '10mm', borderBottom: '2px solid black', paddingBottom: '5mm' }}>
@@ -959,17 +983,39 @@ const CbtPortal: React.FC<CbtPortalProps> = ({ onBack }) => {
                   </label>
                   
                   {/* Math/Symbol Toolbar */}
-                  <div className="flex flex-wrap gap-1.5 mb-2 p-2 bg-white border border-gray-200 rounded-lg">
-                    {MATH_SYMBOLS.map(s => (
-                        <button 
-                            key={s} 
-                            onClick={() => insertSymbol(s)}
-                            className="w-8 h-8 flex items-center justify-center bg-gray-50 border border-gray-200 rounded hover:bg-purple-600 hover:text-white hover:border-purple-600 transition text-sm font-serif shadow-sm"
-                            title="Insert Symbol"
-                        >
-                            {s}
-                        </button>
-                    ))}
+                  <div className="mb-2 p-3 bg-gray-50 border border-gray-200 rounded-lg">
+                      <div className="flex justify-between items-center mb-2">
+                          <p className="text-[10px] font-bold text-gray-500 uppercase">Math & Science Symbols</p>
+                          <span className="text-[10px] text-gray-400">Click to insert</span>
+                      </div>
+                      
+                      <div className="flex flex-wrap gap-1 mb-3 max-h-32 overflow-y-auto custom-scrollbar">
+                        {MATH_SYMBOLS.map(s => (
+                            <button 
+                                key={s} 
+                                onClick={() => insertSymbol(s)}
+                                className="w-8 h-8 flex items-center justify-center bg-white border border-gray-200 rounded hover:bg-purple-600 hover:text-white hover:border-purple-600 transition text-sm font-serif shadow-sm"
+                                title="Insert Symbol"
+                            >
+                                {s}
+                            </button>
+                        ))}
+                      </div>
+                      
+                      <div className="border-t border-gray-200 pt-2">
+                          <p className="text-[10px] font-bold text-gray-500 uppercase mb-2">Quick Formulas</p>
+                          <div className="flex flex-wrap gap-2">
+                              {EQUATION_TEMPLATES.map((tmpl, i) => (
+                                  <button
+                                    key={i}
+                                    onClick={() => insertSymbol(tmpl.val)}
+                                    className="px-2 py-1 bg-white border border-gray-200 rounded text-xs font-medium text-gray-600 hover:bg-purple-50 hover:text-purple-700 hover:border-purple-200 transition"
+                                  >
+                                    {tmpl.label}
+                                  </button>
+                              ))}
+                          </div>
+                      </div>
                   </div>
 
                   <textarea 
@@ -1104,7 +1150,7 @@ const CbtPortal: React.FC<CbtPortalProps> = ({ onBack }) => {
         )}
 
         {/* Hidden Container for PDF Generation */}
-        <div className="fixed top-0 left-0 -z-50 invisible pointer-events-none">
+        <div className="fixed top-0 left-0 -z-50 opacity-0 pointer-events-none">
             <div ref={questionsPrintRef} style={{ width: '210mm', minHeight: '297mm', background: 'white', padding: '15mm', fontFamily: 'serif', color: 'black' }}>
                 <div style={{ textAlign: 'center', marginBottom: '10mm', borderBottom: '2px solid black', paddingBottom: '5mm' }}>
                     <h1 style={{ fontSize: '24px', fontWeight: 'bold', textTransform: 'uppercase' }}>{teacher.schoolName || "School Assessment"}</h1>
@@ -1257,7 +1303,7 @@ const CbtPortal: React.FC<CbtPortalProps> = ({ onBack }) => {
              </div>
              
              {/* Hidden Student Result PDF Container */}
-             <div className="fixed top-0 left-0 -z-50 invisible pointer-events-none">
+             <div className="fixed top-0 left-0 -z-50 opacity-0 pointer-events-none">
                 <div ref={studentResultPrintRef} style={{ width: '210mm', minHeight: '297mm', background: 'white', padding: '15mm', fontFamily: 'serif', color: 'black', textAlign: 'left' }}>
                     <div style={{ textAlign: 'center', marginBottom: '10mm', borderBottom: '2px solid black', paddingBottom: '5mm' }}>
                         <h1 style={{ fontSize: '24px', fontWeight: 'bold', textTransform: 'uppercase' }}>{student.schoolName || "School Assessment Result"}</h1>

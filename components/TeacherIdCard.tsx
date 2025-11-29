@@ -1,7 +1,15 @@
 
 import React, { useRef } from 'react';
+import QRCode from "react-qr-code";
 import { Download, School, User, BadgeCheck } from 'lucide-react';
 import { TeacherData } from '../types';
+
+// Add html2pdf to window type
+declare global {
+  interface Window {
+    html2pdf: any;
+  }
+}
 
 interface TeacherIdCardProps {
   teacher: TeacherData;
@@ -82,8 +90,27 @@ const TeacherIdCard: React.FC<TeacherIdCardProps> = ({ teacher, onClose }) => {
         
         {/* Footer */}
         <div className="absolute bottom-0 w-full bg-yellow-500 h-1.5"></div>
-        <div className="absolute bottom-3 right-4 text-[8px] text-slate-500 text-right">
+        <div className="absolute bottom-2.5 left-4 text-[7px] text-slate-500">
            <p>Property of {teacher.schoolName}</p>
+        </div>
+
+        {/* QR Code */}
+        <div className="absolute bottom-3 right-3 bg-white p-1 rounded-md shadow-lg border border-white/20">
+           <div style={{ height: "40px", width: "40px" }}>
+            <QRCode
+              size={256}
+              style={{ height: "auto", maxWidth: "100%", width: "100%" }}
+              value={JSON.stringify({
+                id: teacher.generatedId,
+                nm: teacher.teacherName,
+                sc: teacher.schoolId
+              })}
+              viewBox={`0 0 256 256`}
+              level="M"
+              bgColor="#FFFFFF"
+              fgColor="#000000"
+            />
+          </div>
         </div>
     </div>
   );
@@ -117,7 +144,8 @@ const TeacherIdCard: React.FC<TeacherIdCardProps> = ({ teacher, onClose }) => {
       </div>
 
       {/* Hidden Container for PDF Generation - Fits A4 Page */}
-      <div className="fixed top-0 left-0 -z-50 invisible pointer-events-none">
+      {/* Used opacity-0 instead of invisible to ensure html2canvas captures it */}
+      <div className="fixed top-0 left-0 -z-50 opacity-0 pointer-events-none">
         <div ref={printRef} style={{ width: '210mm', height: '297mm', background: 'white', padding: '15mm' }}>
              <div style={{ marginBottom: '10mm', fontFamily: 'sans-serif' }}>
                  <h1 style={{ fontSize: '18pt', fontWeight: 'bold', color: '#333' }}>Staff Identity Card</h1>

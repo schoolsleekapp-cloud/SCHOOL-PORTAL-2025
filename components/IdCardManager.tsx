@@ -4,6 +4,13 @@ import QRCode from "react-qr-code";
 import { Search, Filter, ArrowUpDown, FileDown, User, BadgeCheck } from 'lucide-react';
 import { StudentData, TeacherData } from '../types';
 
+// Add html2pdf to window type
+declare global {
+  interface Window {
+    html2pdf: any;
+  }
+}
+
 interface IdCardManagerProps {
   students: StudentData[];
   teachers: TeacherData[];
@@ -138,7 +145,8 @@ const IdCardManager: React.FC<IdCardManagerProps> = ({ students, teachers }) => 
       </div>
 
        {/* Hidden PDF Container */}
-       <div className="fixed top-0 left-0 -z-50 invisible pointer-events-none">
+       {/* Use opacity-0 instead of invisible to ensure html2canvas captures it */}
+       <div className="fixed top-0 left-0 -z-50 opacity-0 pointer-events-none">
         <div ref={printRef}>
           {pages.map((pageItems, pageIndex) => (
              <div key={pageIndex} style={{

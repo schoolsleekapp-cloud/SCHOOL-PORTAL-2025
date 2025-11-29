@@ -1,6 +1,6 @@
 
 import React, { useEffect, useState, useRef } from 'react';
-import { X, Camera, AlertCircle, ExternalLink } from 'lucide-react';
+import { X, Camera, AlertCircle, ExternalLink, RefreshCw } from 'lucide-react';
 
 interface Props {
   onScanSuccess: (decodedText: string) => void;
@@ -18,9 +18,15 @@ const QrScannerModal: React.FC<Props> = ({ onScanSuccess, onClose }) => {
     const inIframe = window.self !== window.top;
     setIsEmbedded(inIframe);
 
-    // 1. Check if browser supports media devices
+    // 0. Security Check
+    if (window.isSecureContext === false) {
+      setPermissionError("Camera access requires a secure connection (HTTPS). If testing locally, use localhost.");
+      return;
+    }
+
+    // 1. Browser Support Check
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-      setPermissionError("Your browser does not support camera access or it is blocked.");
+      setPermissionError("Your browser does not support camera access.");
       return;
     }
 
@@ -28,49 +34,18 @@ const QrScannerModal: React.FC<Props> = ({ onScanSuccess, onClose }) => {
     const Html5QrcodeSupportedFormats = (window as any).Html5QrcodeSupportedFormats;
 
     if (!Html5QrcodeScanner) {
-      setPermissionError("Scanner library failed to load.");
+      setPermissionError("Scanner library failed to load. Please check your internet connection.");
       return;
     }
 
-    // 2. Explicitly request permission first to catch NotAllowedError
-    const requestPermissionAndStart = async () => {
-      try {
-        // Request "environment" (rear) camera specifically for better mobile UX
-        const stream = await navigator.mediaDevices.getUserMedia({ 
-            video: { facingMode: "environment" } 
-        });
-        
-        // CRITICAL FIX: Stop the stream immediately. 
-        // We only opened it to trigger the permission prompt and verify access.
-        // If we don't close it, the scanner library will fail with "NotReadableError" (Camera busy) on mobile.
-        stream.getTracks().forEach(track => track.stop());
-        
-        // Permission granted, start scanner
-        startScanner();
-      } catch (err: any) {
-        console.error("Camera Permission Error:", err);
-        
-        let errorMessage = "Failed to access camera.";
-        
-        if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
-           if (inIframe) {
-             errorMessage = "Camera is blocked because the app is embedded. Please open in a new tab.";
-           } else {
-             errorMessage = "Camera access was denied. Please allow permissions in settings.";
-           }
-        } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
-           errorMessage = "No camera device found.";
-        } else if (err.name === 'NotReadableError' || err.name === 'TrackStartError') {
-           errorMessage = "Camera is in use by another app or tab.";
-        } else {
-           errorMessage = err.message || "Unknown camera error.";
-        }
-        
-        setPermissionError(errorMessage);
-      }
-    };
-
+    // Function to initialize the library
     const startScanner = () => {
+        // Clear any existing instance
+        if (scannerRef.current) {
+            scannerRef.current.clear().catch(() => {});
+            scannerRef.current = null;
+        }
+
         const timerId = setTimeout(() => {
             try {
               if (scannerRef.current) return;
@@ -83,9 +58,7 @@ const QrScannerModal: React.FC<Props> = ({ onScanSuccess, onClose }) => {
                   aspectRatio: 1.0,
                   showTorchButtonIfSupported: true,
                   formatsToSupport: [ Html5QrcodeSupportedFormats.QR_CODE ],
-                  experimentalFeatures: {
-                      useBarCodeDetectorIfSupported: true
-                  }
+                  // experimentalFeatures: { useBarCodeDetectorIfSupported: true } 
                 },
                 /* verbose= */ false
               );
@@ -94,20 +67,64 @@ const QrScannerModal: React.FC<Props> = ({ onScanSuccess, onClose }) => {
       
               scanner.render(
                 (decodedText: string) => {
-                  onScanSuccess(decodedText);
+                  // Prevent multiple calls
+                  if (scannerRef.current) {
+                      scannerRef.current.clear().then(() => {
+                          onScanSuccess(decodedText);
+                      }).catch(() => {
+                          onScanSuccess(decodedText);
+                      });
+                      scannerRef.current = null;
+                  }
                 }, 
                 (errorMessage: any) => {
-                  // Ignore parse errors, only care about initialization errors handled above
+                  // Ignore parse errors
                 }
               );
       
             } catch (err: any) {
               console.error("Scanner Init Error:", err);
-              setPermissionError("Failed to initialize scanner.");
+              setPermissionError("Failed to initialize scanner UI.");
             }
-          }, 300); // Slight delay to ensure DOM is ready and stream is fully closed
-
+          }, 300); // Delay to ensure previous streams are fully closed
+          
           return () => clearTimeout(timerId);
+    };
+
+    // 2. Explicitly request permission first to catch errors reliably
+    const requestPermissionAndStart = async () => {
+      try {
+        // Use generic constraints (video: true) to avoid OverconstrainedError on devices without 'environment' cam
+        const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+        
+        // CRITICAL: Stop the stream immediately. 
+        // We only opened it to trigger the permission prompt/check.
+        stream.getTracks().forEach(track => track.stop());
+        
+        // Permission granted, now start the library which handles its own stream
+        startScanner();
+
+      } catch (err: any) {
+        console.error("Camera Permission Error:", err);
+        
+        let errorMessage = "Failed to access camera.";
+        
+        if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+           if (inIframe) {
+             errorMessage = "Camera access is blocked by the iframe/embed container. Open in new tab.";
+           } else {
+             errorMessage = "Permission denied. Click the Lock icon in your address bar to allow Camera access.";
+           }
+        } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
+           errorMessage = "No camera device found.";
+        } else if (err.name === 'NotReadableError' || err.name === 'TrackStartError') {
+           errorMessage = "Camera is in use by another app.";
+        } else {
+           errorMessage = `Camera Error: ${err.message || 'Unknown'}`;
+        }
+        
+        setPermissionError(errorMessage);
+      }
     };
 
     requestPermissionAndStart();
@@ -116,9 +133,7 @@ const QrScannerModal: React.FC<Props> = ({ onScanSuccess, onClose }) => {
     return () => {
       if (scannerRef.current) {
         try {
-          scannerRef.current.clear().catch((error: any) => {
-            console.warn("Failed to clear scanner", error);
-          });
+          scannerRef.current.clear().catch(() => {});
           scannerRef.current = null;
         } catch (e) {
           console.warn("Error during scanner cleanup", e);
@@ -126,6 +141,11 @@ const QrScannerModal: React.FC<Props> = ({ onScanSuccess, onClose }) => {
       }
     };
   }, [onScanSuccess]);
+
+  const handleReload = () => {
+      setPermissionError(null);
+      window.location.reload();
+  };
 
   const handleOpenNewTab = () => {
     window.open(window.location.href, '_blank');
@@ -146,12 +166,12 @@ const QrScannerModal: React.FC<Props> = ({ onScanSuccess, onClose }) => {
 
         <div className="p-4 bg-gray-100 min-h-[300px] flex flex-col items-center justify-center">
              {permissionError ? (
-               <div className="text-center p-4">
+               <div className="text-center p-4 w-full">
                   <AlertCircle size={48} className="text-red-500 mx-auto mb-2" />
-                  <p className="text-red-600 font-bold mb-1">Camera Error</p>
-                  <p className="text-sm text-gray-600 mb-4">{permissionError}</p>
+                  <p className="text-red-600 font-bold mb-1">Camera Issue</p>
+                  <p className="text-sm text-gray-600 mb-6">{permissionError}</p>
                   
-                  <div className="flex flex-col gap-2 w-full">
+                  <div className="flex flex-col gap-3 w-full">
                     {isEmbedded && (
                         <button 
                             onClick={handleOpenNewTab} 
@@ -160,8 +180,8 @@ const QrScannerModal: React.FC<Props> = ({ onScanSuccess, onClose }) => {
                             <ExternalLink size={16} /> Open App in New Tab
                         </button>
                     )}
-                    <button onClick={() => window.location.reload()} className="w-full px-4 py-3 bg-gray-200 text-gray-800 rounded-lg text-sm font-semibold hover:bg-gray-300 transition-all">
-                        Reload Page
+                    <button onClick={handleReload} className="w-full px-4 py-3 bg-gray-200 text-gray-800 rounded-lg text-sm font-semibold hover:bg-gray-300 transition-all flex items-center justify-center gap-2">
+                        <RefreshCw size={16} /> Retry / Reload
                     </button>
                   </div>
                </div>
@@ -169,7 +189,7 @@ const QrScannerModal: React.FC<Props> = ({ onScanSuccess, onClose }) => {
                <>
                  <div id={scannerContainerId} className="w-full rounded-lg overflow-hidden bg-white shadow-inner"></div>
                  <p className="text-center text-xs text-gray-500 mt-4">
-                    Position the student ID QR code within the frame.
+                    Position QR code within frame.
                  </p>
                </>
              )}

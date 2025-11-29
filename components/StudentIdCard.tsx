@@ -1,7 +1,15 @@
+
 import React, { useRef } from 'react';
 import QRCode from "react-qr-code";
 import { Download, School, User } from 'lucide-react';
 import { StudentData } from '../types';
+
+// Add html2pdf to window type
+declare global {
+  interface Window {
+    html2pdf: any;
+  }
+}
 
 interface StudentIdCardProps {
   student: StudentData;
@@ -137,7 +145,8 @@ const StudentIdCard: React.FC<StudentIdCardProps> = ({ student, onClose }) => {
       </div>
 
       {/* Hidden Container for PDF Generation - Fits A4 Page */}
-      <div className="fixed top-0 left-0 -z-50 invisible pointer-events-none">
+      {/* Use opacity-0 instead of invisible to ensure html2canvas renders it */}
+      <div className="fixed top-0 left-0 -z-50 opacity-0 pointer-events-none">
         <div ref={printRef} style={{ width: '210mm', height: '297mm', background: 'white', padding: '15mm' }}>
              <div style={{ marginBottom: '10mm', fontFamily: 'sans-serif' }}>
                  <h1 style={{ fontSize: '18pt', fontWeight: 'bold', color: '#333' }}>Student Identity Card</h1>
