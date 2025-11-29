@@ -3,7 +3,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { 
   Laptop2, QrCode, Upload, FileText, CheckCircle, Clock, 
   AlertCircle, ChevronRight, Save, User, School, Play, BrainCircuit, Loader2, KeyRound, Calculator, BookOpen, Layers, Type, AlignLeft,
-  FileDown, Trash2, Copy, Users, Printer, Eye, ClipboardList, Edit, X
+  FileDown, Trash2, Copy, Users, Printer, Eye, ClipboardList, Edit, X, PenTool, Square, Circle, Minus, Eraser, Image as ImageIcon
 } from 'lucide-react';
 import { 
   collection, addDoc, query, where, getDocs, updateDoc, doc, setDoc, orderBy 
@@ -29,6 +29,172 @@ interface CbtPortalProps {
 }
 
 type PortalMode = 'selection' | 'teacher_login' | 'teacher_dash' | 'student_login' | 'student_exam';
+
+// --- Drawing Canvas Component ---
+const DrawingCanvas = ({ onSave, onClose, initialImage }: { onSave: (img: string) => void, onClose: () => void, initialImage?: string }) => {
+    const canvasRef = useRef<HTMLCanvasElement>(null);
+    const [isDrawing, setIsDrawing] = useState(false);
+    const [tool, setTool] = useState<'pen' | 'rect' | 'circle' | 'line' | 'eraser'>('pen');
+    const [startPos, setStartPos] = useState({ x: 0, y: 0 });
+    const [snapshot, setSnapshot] = useState<ImageData | null>(null);
+
+    useEffect(() => {
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return;
+        
+        ctx.fillStyle = "white";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        if (initialImage) {
+            const img = new Image();
+            img.onload = () => {
+                ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+            };
+            img.src = initialImage;
+        }
+    }, []);
+
+    const startDrawing = (e: React.MouseEvent | React.TouchEvent) => {
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return;
+
+        // Get Coordinates
+        let clientX, clientY;
+        if ('touches' in e) {
+            clientX = e.touches[0].clientX;
+            clientY = e.touches[0].clientY;
+        } else {
+            clientX = (e as React.MouseEvent).clientX;
+            clientY = (e as React.MouseEvent).clientY;
+        }
+
+        const rect = canvas.getBoundingClientRect();
+        const x = clientX - rect.left;
+        const y = clientY - rect.top;
+
+        setStartPos({ x, y });
+        setIsDrawing(true);
+        setSnapshot(ctx.getImageData(0, 0, canvas.width, canvas.height));
+
+        ctx.beginPath();
+        ctx.moveTo(x, y);
+    };
+
+    const draw = (e: React.MouseEvent | React.TouchEvent) => {
+        if (!isDrawing) return;
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return;
+
+        let clientX, clientY;
+        if ('touches' in e) {
+             // Prevent scrolling on mobile while drawing
+            // e.preventDefault(); // Warning: Passive listener issue in React 18
+            clientX = e.touches[0].clientX;
+            clientY = e.touches[0].clientY;
+        } else {
+            clientX = (e as React.MouseEvent).clientX;
+            clientY = (e as React.MouseEvent).clientY;
+        }
+
+        const rect = canvas.getBoundingClientRect();
+        const x = clientX - rect.left;
+        const y = clientY - rect.top;
+
+        if (tool === 'pen' || tool === 'eraser') {
+            ctx.lineWidth = tool === 'eraser' ? 10 : 2;
+            ctx.strokeStyle = tool === 'eraser' ? 'white' : 'black';
+            ctx.lineCap = 'round';
+            ctx.lineTo(x, y);
+            ctx.stroke();
+        } else {
+            // For shapes, we restore the snapshot (to avoid trailing) then draw the new shape
+            if (snapshot) ctx.putImageData(snapshot, 0, 0);
+            ctx.lineWidth = 2;
+            ctx.strokeStyle = 'black';
+            ctx.beginPath();
+
+            if (tool === 'rect') {
+                ctx.strokeRect(startPos.x, startPos.y, x - startPos.x, y - startPos.y);
+            } else if (tool === 'circle') {
+                const radius = Math.sqrt(Math.pow(x - startPos.x, 2) + Math.pow(y - startPos.y, 2));
+                ctx.arc(startPos.x, startPos.y, radius, 0, 2 * Math.PI);
+                ctx.stroke();
+            } else if (tool === 'line') {
+                ctx.moveTo(startPos.x, startPos.y);
+                ctx.lineTo(x, y);
+                ctx.stroke();
+            }
+        }
+    };
+
+    const stopDrawing = () => {
+        setIsDrawing(false);
+    };
+
+    const handleSave = () => {
+        if (!canvasRef.current) return;
+        onSave(canvasRef.current.toDataURL('image/png'));
+        onClose();
+    };
+
+    const clearCanvas = () => {
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+            ctx.fillStyle = "white";
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+        }
+    };
+
+    return (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+            <div className="bg-white rounded-xl shadow-2xl p-4 w-full max-w-lg flex flex-col items-center">
+                <div className="flex justify-between w-full mb-3">
+                    <h3 className="font-bold text-gray-800">Draw Diagram / Shape</h3>
+                    <button onClick={onClose} className="text-gray-400 hover:text-black"><X /></button>
+                </div>
+                
+                <div className="flex gap-2 mb-3 flex-wrap justify-center">
+                    <button onClick={() => setTool('pen')} className={`p-2 rounded ${tool === 'pen' ? 'bg-purple-100 text-purple-700 border border-purple-300' : 'bg-gray-100'}`} title="Freehand"><PenTool size={18}/></button>
+                    <button onClick={() => setTool('line')} className={`p-2 rounded ${tool === 'line' ? 'bg-purple-100 text-purple-700 border border-purple-300' : 'bg-gray-100'}`} title="Line"><Minus size={18} className="rotate-45"/></button>
+                    <button onClick={() => setTool('rect')} className={`p-2 rounded ${tool === 'rect' ? 'bg-purple-100 text-purple-700 border border-purple-300' : 'bg-gray-100'}`} title="Rectangle"><Square size={18}/></button>
+                    <button onClick={() => setTool('circle')} className={`p-2 rounded ${tool === 'circle' ? 'bg-purple-100 text-purple-700 border border-purple-300' : 'bg-gray-100'}`} title="Circle"><Circle size={18}/></button>
+                    <button onClick={() => setTool('eraser')} className={`p-2 rounded ${tool === 'eraser' ? 'bg-purple-100 text-purple-700 border border-purple-300' : 'bg-gray-100'}`} title="Eraser"><Eraser size={18}/></button>
+                    <div className="w-px bg-gray-300 mx-1"></div>
+                    <button onClick={clearCanvas} className="p-2 rounded bg-red-50 text-red-600 hover:bg-red-100 text-xs font-bold">Clear</button>
+                </div>
+
+                <div className="border border-gray-300 shadow-inner rounded overflow-hidden touch-none">
+                    <canvas 
+                        ref={canvasRef}
+                        width={450}
+                        height={300}
+                        className="bg-white cursor-crosshair max-w-full"
+                        onMouseDown={startDrawing}
+                        onMouseMove={draw}
+                        onMouseUp={stopDrawing}
+                        onMouseLeave={stopDrawing}
+                        onTouchStart={startDrawing}
+                        onTouchMove={draw}
+                        onTouchEnd={stopDrawing}
+                    />
+                </div>
+
+                <div className="w-full mt-4 flex gap-2">
+                    <button onClick={onClose} className="flex-1 py-2 bg-gray-200 rounded-lg font-bold text-gray-700">Cancel</button>
+                    <button onClick={handleSave} className="flex-1 py-2 bg-purple-600 text-white rounded-lg font-bold hover:bg-purple-700">Save Diagram</button>
+                </div>
+            </div>
+        </div>
+    );
+};
 
 const CbtPortal: React.FC<CbtPortalProps> = ({ onBack }) => {
   const [mode, setMode] = useState<PortalMode>('selection');
@@ -60,6 +226,10 @@ const CbtPortal: React.FC<CbtPortalProps> = ({ onBack }) => {
     notes: '',
     generatedQuestions: [] as Question[]
   });
+
+  // Drawing State
+  const [showDrawingModal, setShowDrawingModal] = useState(false);
+  const [currentQuestionIndexForDrawing, setCurrentQuestionIndexForDrawing] = useState<number | null>(null);
 
   // Result Viewer State
   const [showResultModal, setShowResultModal] = useState(false);
@@ -178,6 +348,8 @@ const CbtPortal: React.FC<CbtPortalProps> = ({ onBack }) => {
         const updatedOptions = [...question.options];
         updatedOptions[optIdx] = val;
         question.options = updatedOptions;
+    } else if (field === 'image') {
+        question.image = val;
     }
 
     updatedQuestions[idx] = question;
@@ -187,6 +359,28 @@ const CbtPortal: React.FC<CbtPortalProps> = ({ onBack }) => {
   const handleRemoveQuestion = (idx: number) => {
       const updatedQuestions = assessmentForm.generatedQuestions.filter((_, i) => i !== idx);
       setAssessmentForm(prev => ({ ...prev, generatedQuestions: updatedQuestions }));
+  };
+
+  const handleOpenDrawingModal = (idx: number) => {
+      setCurrentQuestionIndexForDrawing(idx);
+      setShowDrawingModal(true);
+  };
+
+  const handleSaveDrawing = (imageData: string) => {
+      if (currentQuestionIndexForDrawing !== null) {
+          handleUpdateQuestion(currentQuestionIndexForDrawing, 'image', imageData);
+      }
+  };
+
+  // Group questions by section for rendering
+  const getGroupedQuestions = (questions: Question[]) => {
+      const groups: { [key: string]: Question[] } = {};
+      questions.forEach(q => {
+          const section = q.section || 'objective'; // Default to objective if undefined
+          if (!groups[section]) groups[section] = [];
+          groups[section].push(q);
+      });
+      return groups;
   };
 
   const handleScan = async (dataStr: string) => {
@@ -285,10 +479,16 @@ const CbtPortal: React.FC<CbtPortalProps> = ({ onBack }) => {
         assessmentForm.questionMode
       );
       
+      // Tag questions with the current section/mode
+      const taggedQuestions = questions.map(q => ({
+          ...q,
+          section: assessmentForm.questionMode
+      }));
+
       // Append new questions to existing ones (Continuation logic)
       setAssessmentForm(prev => ({ 
           ...prev, 
-          generatedQuestions: [...prev.generatedQuestions, ...questions] 
+          generatedQuestions: [...prev.generatedQuestions, ...taggedQuestions] 
       }));
       
       setSuccess(`Generated ${questions.length} ${assessmentForm.questionMode} questions. Added to list.`);
@@ -340,7 +540,7 @@ const CbtPortal: React.FC<CbtPortalProps> = ({ onBack }) => {
     const filename = `${assessmentForm.subject}_${assessmentForm.classLevel}_Questions.pdf`;
 
     const opt = {
-      margin: 10,
+      margin: 0,
       filename: filename,
       image: { type: 'jpeg', quality: 0.98 },
       html2canvas: { scale: 2, useCORS: true },
@@ -355,7 +555,7 @@ const CbtPortal: React.FC<CbtPortalProps> = ({ onBack }) => {
       const filename = `${viewingHistoryItem.subject}_${viewingHistoryItem.examCode}_Questions.pdf`;
 
       const opt = {
-        margin: 10,
+        margin: 0,
         filename: filename,
         image: { type: 'jpeg', quality: 0.98 },
         html2canvas: { scale: 2, useCORS: true },
@@ -371,7 +571,7 @@ const CbtPortal: React.FC<CbtPortalProps> = ({ onBack }) => {
     const filename = `${student.studentName}_${activeAssessment.subject}_Result.pdf`;
 
     const opt = {
-      margin: 10,
+      margin: 0,
       filename: filename,
       image: { type: 'jpeg', quality: 0.98 },
       html2canvas: { scale: 2, useCORS: true },
@@ -671,8 +871,19 @@ const CbtPortal: React.FC<CbtPortalProps> = ({ onBack }) => {
 
   // Teacher Dashboard
   if (mode === 'teacher_dash' && teacher) {
+    const groupedGeneratedQuestions = getGroupedQuestions(assessmentForm.generatedQuestions);
+    const sections = Object.keys(groupedGeneratedQuestions);
+
     return (
       <div className="max-w-4xl mx-auto p-4 animate-fade-in relative">
+        {showDrawingModal && (
+            <DrawingCanvas 
+                onSave={handleSaveDrawing} 
+                onClose={() => setShowDrawingModal(false)}
+                initialImage={currentQuestionIndexForDrawing !== null ? assessmentForm.generatedQuestions[currentQuestionIndexForDrawing]?.image : undefined}
+            />
+        )}
+
         {/* View Results Modal */}
         {showResultModal && (
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
@@ -746,20 +957,27 @@ const CbtPortal: React.FC<CbtPortalProps> = ({ onBack }) => {
                          <div className="mb-4 text-sm text-gray-700 italic border-b pb-2">
                             <strong>Instructions:</strong> {viewingHistoryItem.instructions || 'None'}
                          </div>
-                         {viewingHistoryItem.questions.map((q, i) => (
-                            <div key={i} className="bg-white p-4 mb-3 rounded-lg shadow-sm border border-gray-100">
-                                <p className="font-bold text-sm text-gray-800 mb-2">{i+1}. {q.questionText}</p>
-                                {q.options && q.options.length > 0 && (
-                                    <ul className="grid grid-cols-2 gap-2 text-xs">
-                                        {q.options.map((opt, idx) => (
-                                            <li key={idx} className={`p-2 rounded ${opt === q.correctAnswer ? 'bg-green-100 text-green-800 font-bold' : 'bg-gray-50 text-gray-600'}`}>
-                                                <span className="font-bold mr-1">{String.fromCharCode(65 + idx)}.</span> {opt}
-                                            </li>
-                                        ))}
-                                    </ul>
-                                )}
-                                {!q.options && <p className="text-xs text-green-700 mt-1 bg-green-50 p-2 rounded inline-block"><strong>Answer:</strong> {q.correctAnswer}</p>}
-                            </div>
+                         {/* Group by Section in History View */}
+                         {Object.keys(getGroupedQuestions(viewingHistoryItem.questions)).map((section, sIdx) => (
+                             <div key={section} className="mb-6 border border-gray-300 p-4 rounded-lg bg-white">
+                                 <h4 className="font-bold text-gray-700 uppercase mb-3 border-b pb-1">Section {String.fromCharCode(65 + sIdx)}: {section}</h4>
+                                 {getGroupedQuestions(viewingHistoryItem.questions)[section].map((q, i) => (
+                                    <div key={i} className="mb-4 p-2 bg-gray-50 rounded">
+                                        <p className="font-bold text-sm text-gray-800 mb-2">{i+1}. {q.questionText}</p>
+                                        {q.image && <img src={q.image} alt="diagram" className="max-w-[200px] border rounded my-2 block" />}
+                                        {q.options && q.options.length > 0 && (
+                                            <ul className="grid grid-cols-2 gap-2 text-xs">
+                                                {q.options.map((opt, idx) => (
+                                                    <li key={idx} className={`p-2 rounded ${opt === q.correctAnswer ? 'bg-green-100 text-green-800 font-bold' : 'bg-white border'}`}>
+                                                        <span className="font-bold mr-1">{String.fromCharCode(65 + idx)}.</span> {opt}
+                                                    </li>
+                                                ))}
+                                            </ul>
+                                        )}
+                                        {!q.options && <p className="text-xs text-green-700 mt-1 bg-green-50 p-2 rounded inline-block"><strong>Answer:</strong> {q.correctAnswer}</p>}
+                                    </div>
+                                 ))}
+                             </div>
                          ))}
                     </div>
                     <div className="mt-4 flex justify-end gap-2">
@@ -773,35 +991,42 @@ const CbtPortal: React.FC<CbtPortalProps> = ({ onBack }) => {
         <div className="fixed top-0 left-0 -z-50 opacity-0 pointer-events-none">
             {viewingHistoryItem && (
                 <div ref={historyPrintRef} style={{ width: '210mm', minHeight: '297mm', background: 'white', padding: '15mm', fontFamily: 'serif', color: 'black' }}>
-                    <div style={{ textAlign: 'center', marginBottom: '10mm', borderBottom: '2px solid black', paddingBottom: '5mm' }}>
+                    <div style={{ textAlign: 'center', marginBottom: '8mm', borderBottom: '2px solid black', paddingBottom: '3mm' }}>
                         <h1 style={{ fontSize: '24px', fontWeight: 'bold', textTransform: 'uppercase' }}>{teacher.schoolName || "School Assessment"}</h1>
                         <h2 style={{ fontSize: '18px', fontWeight: 'bold', marginTop: '5px' }}>{viewingHistoryItem.subject} - {viewingHistoryItem.type.toUpperCase()}</h2>
                         <p style={{ fontSize: '14px' }}>Class: {viewingHistoryItem.classLevel} | Duration: {viewingHistoryItem.durationMinutes} Mins</p>
                     </div>
                     {viewingHistoryItem.instructions && (
-                        <div style={{ marginBottom: '8mm', fontStyle: 'italic', fontSize: '12px' }}>
+                        <div style={{ marginBottom: '6mm', fontStyle: 'italic', fontSize: '12px' }}>
                             <strong>Instructions:</strong> {viewingHistoryItem.instructions}
                         </div>
                     )}
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '5mm' }}>
-                        {viewingHistoryItem.questions.map((q, i) => (
-                            <div key={i} style={{ pageBreakInside: 'avoid' }}>
-                                <div style={{ fontWeight: 'bold', marginBottom: '2mm' }}>{i + 1}. {q.questionText}</div>
-                                {q.options && q.options.length > 0 ? (
-                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '2mm', fontSize: '12px' }}>
-                                        {q.options.map((opt, idx) => (
-                                            <div key={idx} style={{ display: 'flex', gap: '5px' }}>
-                                                <span>{String.fromCharCode(65 + idx)}.</span>
-                                                <span>{opt}</span>
-                                            </div>
-                                        ))}
-                                    </div>
-                                ) : (
-                                    <div style={{ height: '20mm', borderBottom: '1px dotted black', marginTop: '5mm' }}></div>
-                                )}
-                            </div>
-                        ))}
-                    </div>
+                    
+                    {Object.keys(getGroupedQuestions(viewingHistoryItem.questions)).map((section, sIdx) => (
+                        <div key={section} style={{ marginBottom: '8mm', border: '1px solid #ccc', padding: '5mm', borderRadius: '4px' }}>
+                            <h3 style={{ fontSize: '14px', fontWeight: 'bold', textTransform: 'uppercase', marginBottom: '4mm', borderBottom: '1px solid #eee', paddingBottom: '1mm' }}>
+                                Section {String.fromCharCode(65 + sIdx)}: {section}
+                            </h3>
+                            {getGroupedQuestions(viewingHistoryItem.questions)[section].map((q, i) => (
+                                <div key={i} style={{ pageBreakInside: 'avoid', marginBottom: '6mm' }}>
+                                    <div style={{ fontWeight: 'bold', marginBottom: '2mm' }}>{i + 1}. {q.questionText}</div>
+                                    {q.image && <img src={q.image} style={{ maxWidth: '60mm', display:'block', marginBottom:'2mm', border:'1px solid #eee' }} />}
+                                    {q.options && q.options.length > 0 ? (
+                                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '2mm', fontSize: '12px' }}>
+                                            {q.options.map((opt, idx) => (
+                                                <div key={idx} style={{ display: 'flex', gap: '5px' }}>
+                                                    <span>{String.fromCharCode(65 + idx)}.</span>
+                                                    <span>{opt}</span>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    ) : (
+                                        <div style={{ height: '20mm', borderBottom: '1px dotted black', marginTop: '5mm' }}></div>
+                                    )}
+                                </div>
+                            ))}
+                        </div>
+                    ))}
                 </div>
             )}
         </div>
@@ -1085,65 +1310,96 @@ const CbtPortal: React.FC<CbtPortalProps> = ({ onBack }) => {
                     </button>
                  </div>
               </div>
-              <div className="space-y-4 max-h-[600px] overflow-y-auto border p-2 rounded-lg bg-gray-50">
-                 {assessmentForm.generatedQuestions.map((q, i) => (
-                    <div key={i} className="p-4 border rounded-lg bg-white relative group">
-                       <button 
-                            onClick={() => handleRemoveQuestion(i)} 
-                            className="absolute top-2 right-2 text-red-300 hover:text-red-500 transition opacity-0 group-hover:opacity-100"
-                            title="Remove Question"
-                       >
-                           <X size={16} />
-                       </button>
-                       <div className="mb-2">
-                           <label className="text-[10px] font-bold text-gray-400 uppercase">Question {i+1}</label>
-                           <textarea 
-                                value={q.questionText}
-                                onChange={(e) => handleUpdateQuestion(i, 'text', e.target.value)}
-                                className="w-full p-2 border rounded text-sm focus:ring-1 focus:ring-purple-500 outline-none"
-                                rows={2}
-                           />
-                       </div>
-                       
-                       {q.options && q.options.length > 0 ? (
-                           <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                              {q.options.map((opt, idx) => (
-                                 <div key={idx} className="flex items-center gap-2">
-                                     <span className="font-bold text-gray-400 text-xs w-4">{String.fromCharCode(65 + idx)}.</span>
-                                     <input 
-                                        type="text"
-                                        value={opt}
-                                        onChange={(e) => handleUpdateQuestion(i, 'option', e.target.value, idx)}
-                                        className={`flex-1 p-2 border rounded text-xs focus:ring-1 focus:ring-blue-500 outline-none ${opt === q.correctAnswer ? 'border-green-400 bg-green-50' : ''}`}
-                                     />
-                                 </div>
-                              ))}
-                           </div>
-                       ) : null}
 
-                       <div className="mt-3">
-                           <label className="text-[10px] font-bold text-gray-400 uppercase">Correct Answer</label>
-                            {q.options && q.options.length > 0 ? (
-                                <select 
-                                    value={q.correctAnswer}
-                                    onChange={(e) => handleUpdateQuestion(i, 'correct', e.target.value)}
-                                    className="w-full p-2 border rounded text-xs bg-gray-50 outline-none"
-                                >
-                                    {q.options.map((opt, idx) => (
-                                        <option key={idx} value={opt}>{opt}</option>
-                                    ))}
-                                </select>
-                            ) : (
-                                <input 
-                                    type="text"
-                                    value={q.correctAnswer}
-                                    onChange={(e) => handleUpdateQuestion(i, 'correct', e.target.value)}
-                                    className="w-full p-2 border rounded text-xs bg-green-50 border-green-200 outline-none"
-                                    placeholder="Model Answer / Marking Guide"
-                                />
-                            )}
-                       </div>
-                    </div>
+              {/* Grouped Questions Render */}
+              <div className="space-y-6 max-h-[800px] overflow-y-auto border p-2 rounded-lg bg-gray-50">
+                 {sections.map((section, sIdx) => (
+                     <div key={section} className="border-2 border-dashed border-gray-300 rounded-xl p-4 bg-gray-100/50">
+                         <div className="flex justify-between items-center mb-4 pb-2 border-b border-gray-300">
+                            <h4 className="font-bold text-gray-700 uppercase tracking-wide">Section {String.fromCharCode(65 + sIdx)}: {section}</h4>
+                            <span className="text-xs bg-gray-200 text-gray-600 px-2 py-1 rounded-full font-bold">{groupedGeneratedQuestions[section].length} Questions</span>
+                         </div>
+                         
+                         <div className="space-y-4">
+                            {groupedGeneratedQuestions[section].map((q, localIdx) => {
+                                // Find global index to update state correctly
+                                const globalIndex = assessmentForm.generatedQuestions.findIndex(gq => gq === q);
+                                return (
+                                    <div key={globalIndex} className="p-4 border rounded-lg bg-white relative group">
+                                       <button 
+                                            onClick={() => handleRemoveQuestion(globalIndex)} 
+                                            className="absolute top-2 right-2 text-red-300 hover:text-red-500 transition opacity-0 group-hover:opacity-100"
+                                            title="Remove Question"
+                                       >
+                                           <X size={16} />
+                                       </button>
+                                       
+                                       <div className="mb-2">
+                                           <label className="text-[10px] font-bold text-gray-400 uppercase">Question {localIdx+1}</label>
+                                           <textarea 
+                                                value={q.questionText}
+                                                onChange={(e) => handleUpdateQuestion(globalIndex, 'text', e.target.value)}
+                                                className="w-full p-2 border rounded text-sm focus:ring-1 focus:ring-purple-500 outline-none"
+                                                rows={2}
+                                           />
+                                       </div>
+
+                                       <div className="mb-2">
+                                           {q.image ? (
+                                               <div className="relative inline-block group/img">
+                                                   <img src={q.image} alt="Diagram" className="h-24 border rounded shadow-sm bg-white" />
+                                                   <button onClick={() => handleUpdateQuestion(globalIndex, 'image', '')} className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-0.5 opacity-0 group-hover/img:opacity-100 transition"><X size={12}/></button>
+                                               </div>
+                                           ) : (
+                                               <button onClick={() => handleOpenDrawingModal(globalIndex)} className="text-xs flex items-center gap-1 text-purple-600 bg-purple-50 px-2 py-1 rounded hover:bg-purple-100 font-bold border border-purple-200">
+                                                   <PenTool size={12} /> Add Diagram / Shape
+                                               </button>
+                                           )}
+                                       </div>
+                                       
+                                       {q.options && q.options.length > 0 ? (
+                                           <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                                              {q.options.map((opt, idx) => (
+                                                 <div key={idx} className="flex items-center gap-2">
+                                                     <span className="font-bold text-gray-400 text-xs w-4">{String.fromCharCode(65 + idx)}.</span>
+                                                     <input 
+                                                        type="text"
+                                                        value={opt}
+                                                        onChange={(e) => handleUpdateQuestion(globalIndex, 'option', e.target.value, idx)}
+                                                        className={`flex-1 p-2 border rounded text-xs focus:ring-1 focus:ring-blue-500 outline-none ${opt === q.correctAnswer ? 'border-green-400 bg-green-50' : ''}`}
+                                                     />
+                                                 </div>
+                                              ))}
+                                           </div>
+                                       ) : null}
+
+                                       <div className="mt-3">
+                                           <label className="text-[10px] font-bold text-gray-400 uppercase">Correct Answer</label>
+                                            {q.options && q.options.length > 0 ? (
+                                                <select 
+                                                    value={q.correctAnswer}
+                                                    onChange={(e) => handleUpdateQuestion(globalIndex, 'correct', e.target.value)}
+                                                    className="w-full p-2 border rounded text-xs bg-gray-50 outline-none"
+                                                >
+                                                    {q.options.map((opt, idx) => (
+                                                        <option key={idx} value={opt}>{opt}</option>
+                                                    ))}
+                                                </select>
+                                            ) : (
+                                                <input 
+                                                    type="text"
+                                                    value={q.correctAnswer}
+                                                    onChange={(e) => handleUpdateQuestion(globalIndex, 'correct', e.target.value)}
+                                                    className="w-full p-2 border rounded text-xs bg-green-50 border-green-200 outline-none"
+                                                    placeholder="Model Answer / Marking Guide"
+                                                />
+                                            )}
+                                       </div>
+                                    </div>
+                                );
+                            })}
+                         </div>
+                     </div>
                  ))}
               </div>
            </div>
@@ -1152,35 +1408,42 @@ const CbtPortal: React.FC<CbtPortalProps> = ({ onBack }) => {
         {/* Hidden Container for PDF Generation */}
         <div className="fixed top-0 left-0 -z-50 opacity-0 pointer-events-none">
             <div ref={questionsPrintRef} style={{ width: '210mm', minHeight: '297mm', background: 'white', padding: '15mm', fontFamily: 'serif', color: 'black' }}>
-                <div style={{ textAlign: 'center', marginBottom: '10mm', borderBottom: '2px solid black', paddingBottom: '5mm' }}>
+                <div style={{ textAlign: 'center', marginBottom: '8mm', borderBottom: '2px solid black', paddingBottom: '3mm' }}>
                     <h1 style={{ fontSize: '24px', fontWeight: 'bold', textTransform: 'uppercase' }}>{teacher.schoolName || "School Assessment"}</h1>
                     <h2 style={{ fontSize: '18px', fontWeight: 'bold', marginTop: '5px' }}>{assessmentForm.subject} - {assessmentForm.type.toUpperCase()}</h2>
                     <p style={{ fontSize: '14px' }}>Class: {assessmentForm.classLevel} | Duration: {assessmentForm.duration} Mins</p>
                 </div>
                 {assessmentForm.instructions && (
-                    <div style={{ marginBottom: '8mm', fontStyle: 'italic', fontSize: '12px' }}>
-                        <strong>Instructions:</strong> {assessmentForm.instructions}
+                    <div style={{ marginBottom: '6mm', fontStyle: 'italic', fontSize: '12px' }}>
+                        <strong>General Instructions:</strong> {assessmentForm.instructions}
                     </div>
                 )}
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '5mm' }}>
-                    {assessmentForm.generatedQuestions.map((q, i) => (
-                        <div key={i} style={{ pageBreakInside: 'avoid' }}>
-                            <div style={{ fontWeight: 'bold', marginBottom: '2mm' }}>{i + 1}. {q.questionText}</div>
-                            {q.options && q.options.length > 0 ? (
-                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '2mm', fontSize: '12px' }}>
-                                    {q.options.map((opt, idx) => (
-                                        <div key={idx} style={{ display: 'flex', gap: '5px' }}>
-                                            <span>{String.fromCharCode(65 + idx)}.</span>
-                                            <span>{opt}</span>
-                                        </div>
-                                    ))}
-                                </div>
-                            ) : (
-                                <div style={{ height: '20mm', borderBottom: '1px dotted black', marginTop: '5mm' }}></div>
-                            )}
-                        </div>
-                    ))}
-                </div>
+                
+                {sections.map((section, sIdx) => (
+                    <div key={section} style={{ marginBottom: '8mm', border: '1px solid #ccc', padding: '5mm', borderRadius: '4px' }}>
+                         <h3 style={{ fontSize: '14px', fontWeight: 'bold', textTransform: 'uppercase', marginBottom: '4mm', borderBottom: '1px solid #eee', paddingBottom: '1mm' }}>
+                             Section {String.fromCharCode(65 + sIdx)}: {section}
+                         </h3>
+                         {groupedGeneratedQuestions[section].map((q, i) => (
+                            <div key={i} style={{ pageBreakInside: 'avoid', marginBottom: '6mm' }}>
+                                <div style={{ fontWeight: 'bold', marginBottom: '2mm' }}>{i + 1}. {q.questionText}</div>
+                                {q.image && <img src={q.image} style={{ maxWidth: '60mm', display:'block', marginBottom:'2mm', border:'1px solid #eee' }} />}
+                                {q.options && q.options.length > 0 ? (
+                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '2mm', fontSize: '12px' }}>
+                                        {q.options.map((opt, idx) => (
+                                            <div key={idx} style={{ display: 'flex', gap: '5px' }}>
+                                                <span>{String.fromCharCode(65 + idx)}.</span>
+                                                <span>{opt}</span>
+                                            </div>
+                                        ))}
+                                    </div>
+                                ) : (
+                                    <div style={{ height: '20mm', borderBottom: '1px dotted black', marginTop: '5mm' }}></div>
+                                )}
+                            </div>
+                        ))}
+                    </div>
+                ))}
             </div>
         </div>
       </div>
@@ -1222,6 +1485,8 @@ const CbtPortal: React.FC<CbtPortalProps> = ({ onBack }) => {
                   <div key={q.id} className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
                      <p className="font-bold text-lg text-gray-800 mb-4"><span className="text-blue-500 mr-2">{i+1}.</span>{q.questionText}</p>
                      
+                     {q.image && <div className="mb-4"><img src={q.image} alt="Diagram" className="max-w-full md:max-w-md border rounded-lg" /></div>}
+
                      {!q.options || q.options.length === 0 ? (
                         <textarea 
                             className="w-full p-3 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none min-h-[120px]"

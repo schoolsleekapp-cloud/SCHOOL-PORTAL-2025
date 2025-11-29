@@ -107,6 +107,8 @@ export interface Question {
   questionText: string;
   options?: string[]; // Made optional for Essay type
   correctAnswer: string; // The correct option string or model answer
+  section?: string; // e.g., 'objective', 'theory'
+  image?: string; // Base64 string for diagrams/drawings
 }
 
 export type AssessmentType = 'ca1' | 'ca2' | 'exam';
