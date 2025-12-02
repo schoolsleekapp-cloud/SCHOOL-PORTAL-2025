@@ -78,6 +78,15 @@ export interface SchoolData {
   schoolLogo: string;
 }
 
+export interface SchoolAdminProfile {
+  id?: string;
+  adminId: string; // The login ID (e.g., SCH-001-A1)
+  schoolId: string;
+  name: string;
+  password: string;
+  createdAt: string;
+}
+
 export interface StudentData {
   studentName: string;
   admissionNumber: string;
@@ -93,6 +102,7 @@ export interface StudentData {
 }
 
 export interface TeacherData {
+  id?: string;
   teacherName: string;
   schoolId: string;
   generatedId: string;

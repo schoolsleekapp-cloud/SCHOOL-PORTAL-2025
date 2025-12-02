@@ -5,9 +5,9 @@ import {
   School, FileText, Search, ShieldAlert, Edit, Users, Building2, 
   Database, Plus, Trash2, Trophy, Activity, 
   Sparkles, Loader2, Eye, ArrowLeft, RefreshCw, KeyRound, CheckCircle, Palette, Phone, Mail, MapPin, Clock, Star, UserCog,
-  Upload, QrCode, GraduationCap, Lock, House, LayoutDashboard, UserCheck, CreditCard, LogIn, LogOut, CalendarCheck, Calendar, ChevronLeft, ChevronRight, FileDown, Laptop2, BrainCircuit, X, User, BarChart3
+  Upload, QrCode, GraduationCap, Lock, House, LayoutDashboard, UserCheck, CreditCard, LogIn, LogOut, CalendarCheck, Calendar, ChevronLeft, ChevronRight, FileDown, Laptop2, BrainCircuit, X, User, BarChart3, Settings, ShieldCheck, UserPlus
 } from 'lucide-react';
-import { collection, addDoc, query, where, getDocs, doc, updateDoc, orderBy } from 'firebase/firestore';
+import { collection, addDoc, query, where, getDocs, doc, updateDoc, orderBy, deleteDoc } from 'firebase/firestore';
 
 import { db } from './services/firebase';
 import { generateGeminiRemarks } from './services/gemini';
@@ -17,7 +17,7 @@ import TeacherIdCard from './components/TeacherIdCard';
 import QrScannerModal from './components/QrScannerModal';
 import IdCardManager from './components/IdCardManager';
 import CbtPortal from './components/CbtPortal'; // Import CBT Portal
-import { ResultData, Subject, SchoolData, StudentData, ViewState, TeacherData, AttendanceLog, CbtAssessment } from './types';
+import { ResultData, Subject, SchoolData, StudentData, ViewState, TeacherData, AttendanceLog, CbtAssessment, SchoolAdminProfile } from './types';
 import { 
   THEME_COLORS, AFFECTIVE_TRAITS, PSYCHOMOTOR_SKILLS, COGNITIVE_TRAITS,
   ALL_NIGERIAN_SUBJECTS, CLASS_LEVELS, TEACHER_SECRET_CODE, SUPER_ADMIN_KEY, APP_ID 
@@ -46,9 +46,16 @@ export default function App() {
 
   // School Admin State
   const [currentSchool, setCurrentSchool] = useState<SchoolData | null>(null);
+  const [currentUserProfile, setCurrentUserProfile] = useState<{name: string, role: string} | null>(null);
   const [schoolLogin, setSchoolLogin] = useState({ id: '', password: '' });
-  const [schoolDashboardTab, setSchoolDashboardTab] = useState<'overview' | 'teachers' | 'students' | 'results' | 'attendance' | 'exams'>('overview');
+  const [schoolDashboardTab, setSchoolDashboardTab] = useState<'overview' | 'teachers' | 'students' | 'results' | 'attendance' | 'exams' | 'admins'>('overview');
   const [showSchoolQr, setShowSchoolQr] = useState(false);
+  
+  // Sub-Admin & Teacher Management State
+  const [schoolAdmins, setSchoolAdmins] = useState<SchoolAdminProfile[]>([]);
+  const [editingTeacher, setEditingTeacher] = useState<TeacherData | null>(null);
+  const [newAdminData, setNewAdminData] = useState({ name: '', password: '' });
+  
   const [schoolData, setSchoolData] = useState({
     teachers: [] as TeacherData[],
     students: [] as StudentData[],
@@ -111,7 +118,7 @@ export default function App() {
                 // Fetch Teachers
                 const qT = query(collection(db, 'Teacher Data'), where('schoolId', '==', currentSchool.schoolId));
                 const snapT = await getDocs(qT);
-                const teachers = snapT.docs.map(d => d.data() as TeacherData);
+                const teachers = snapT.docs.map(d => ({id: d.id, ...d.data()} as TeacherData));
 
                 // Fetch Students
                 const qS = query(collection(db, 'Student Data'), where('schoolId', '==', currentSchool.schoolId));
@@ -132,8 +139,14 @@ export default function App() {
                 const qE = query(collection(db, 'CBT Assessments'), where('schoolId', '==', currentSchool.schoolId));
                 const snapE = await getDocs(qE);
                 const exams = snapE.docs.map(d => ({id: d.id, ...d.data()} as CbtAssessment));
+                
+                // Fetch Sub Admins
+                const qAdmins = query(collection(db, 'School Admins'), where('schoolId', '==', currentSchool.schoolId));
+                const snapAdmins = await getDocs(qAdmins);
+                const admins = snapAdmins.docs.map(d => ({id: d.id, ...d.data()} as SchoolAdminProfile));
 
                 setSchoolData({ teachers, students, results, attendance, exams });
+                setSchoolAdmins(admins);
             } catch (err) {
                 console.error("Error fetching school data:", err);
                 setError("Failed to load school dashboard data.");
@@ -201,6 +214,97 @@ export default function App() {
     setSearchQuery({ schoolId: '', studentId: '' });
     setAdminQuery({ schoolId: '', studentId: '', teacherCode: '' });
     setSchoolLogin({ id: '', password: '' });
+    setEditingTeacher(null);
+  };
+
+  const handleUpdateTeacher = async () => {
+      if (!editingTeacher || !editingTeacher.id) return;
+      setLoading(true);
+      try {
+          const teacherRef = doc(db, 'Teacher Data', editingTeacher.id);
+          await updateDoc(teacherRef, {
+              teacherName: editingTeacher.teacherName,
+              email: editingTeacher.email,
+              phoneNumber: editingTeacher.phoneNumber
+          });
+          setSuccessMsg("Teacher details updated successfully!");
+          
+          // Refresh list locally
+          setSchoolData(prev => ({
+              ...prev,
+              teachers: prev.teachers.map(t => t.id === editingTeacher.id ? editingTeacher : t)
+          }));
+          
+          setEditingTeacher(null);
+      } catch (err) {
+          console.error(err);
+          setError("Failed to update teacher details.");
+      } finally {
+          setLoading(false);
+      }
+  };
+
+  const handleDeleteTeacher = async (teacherId: string) => {
+      if (!window.confirm("Are you sure you want to delete this teacher? This action cannot be undone.")) return;
+      setLoading(true);
+      try {
+          await deleteDoc(doc(db, 'Teacher Data', teacherId));
+          setSuccessMsg("Teacher deleted successfully.");
+          setSchoolData(prev => ({
+              ...prev,
+              teachers: prev.teachers.filter(t => t.id !== teacherId)
+          }));
+      } catch (err) {
+          console.error(err);
+          setError("Failed to delete teacher.");
+      } finally {
+          setLoading(false);
+      }
+  };
+
+  const handleAddSubAdmin = async () => {
+      if (!newAdminData.name || !newAdminData.password || !currentSchool) {
+          setError("Name and Password are required.");
+          return;
+      }
+      setLoading(true);
+      try {
+          const suffix = Math.floor(1000 + Math.random() * 9000);
+          const adminId = `${currentSchool.schoolId}-A${suffix}`;
+          
+          const newAdmin: SchoolAdminProfile = {
+              schoolId: currentSchool.schoolId,
+              adminId: adminId,
+              name: newAdminData.name,
+              password: newAdminData.password,
+              createdAt: new Date().toISOString()
+          };
+
+          const docRef = await addDoc(collection(db, 'School Admins'), newAdmin);
+          setSchoolAdmins(prev => [...prev, { ...newAdmin, id: docRef.id }]);
+          setNewAdminData({ name: '', password: '' });
+          setSuccessMsg(`Admin Added! Login ID: ${adminId}`);
+      } catch (err) {
+          console.error(err);
+          setError("Failed to add admin.");
+      } finally {
+          setLoading(false);
+      }
+  };
+
+  const handleDeleteSubAdmin = async (id: string) => {
+      if (!window.confirm("Remove this admin access?")) return;
+      setLoading(true);
+      try {
+          await deleteDoc(doc(db, 'School Admins', id));
+          setSchoolAdmins(prev => prev.filter(a => a.id !== id));
+          setSuccessMsg("Admin removed.");
+      } catch (err) {
+          console.error(err);
+          setError("Failed to remove admin.");
+      } finally {
+          setLoading(false);
+      }
   };
 
   const handleConfirmAttendance = async () => {
@@ -662,6 +766,7 @@ export default function App() {
           
           setSuccessMsg(`School Registered! ID: ${newSchoolId}`); 
           setCurrentSchool(newSchool);
+          setCurrentUserProfile({ name: 'Master Admin', role: 'Main Admin' });
 
           setTimeout(() => { 
               setSuccessMsg(''); 
@@ -678,34 +783,54 @@ export default function App() {
 
   const handleSchoolLogin = async () => {
     if (!schoolLogin.id || !schoolLogin.password) {
-        setError("School ID and Password are required.");
+        setError("Login ID and Password are required.");
         return;
     }
     setLoading(true);
     setError('');
+    
+    const inputId = schoolLogin.id.trim();
+
     try {
-        const q = query(collection(db, 'School Data'), where("schoolId", "==", schoolLogin.id.trim()));
-        const snap = await getDocs(q);
+        // 1. Try Login as Master Admin (School ID)
+        let q = query(collection(db, 'School Data'), where("schoolId", "==", inputId));
+        let snap = await getDocs(q);
         
-        if (snap.empty) {
-            setError("School ID not found.");
-            setLoading(false);
-            return;
+        if (!snap.empty) {
+            const school = snap.docs[0].data() as SchoolData;
+            if (school.schoolCode === schoolLogin.password) {
+                 setCurrentSchool(school);
+                 setCurrentUserProfile({ name: 'Master Admin', role: 'Main Admin' });
+                 setSuccessMsg("Login Successful!");
+                 setTimeout(() => { setSuccessMsg(''); setView('school-admin-dashboard'); }, 1000);
+                 setLoading(false);
+                 return;
+            }
         }
 
-        const school = snap.docs[0].data() as SchoolData;
-        if (school.schoolCode !== schoolLogin.password) {
-            setError("Invalid Password.");
-            setLoading(false);
-            return;
+        // 2. Try Login as Sub-Admin
+        q = query(collection(db, 'School Admins'), where("adminId", "==", inputId));
+        snap = await getDocs(q);
+
+        if (!snap.empty) {
+            const adminProfile = snap.docs[0].data() as SchoolAdminProfile;
+            if (adminProfile.password === schoolLogin.password) {
+                 // Fetch Parent School Data
+                 const qSchool = query(collection(db, 'School Data'), where("schoolId", "==", adminProfile.schoolId));
+                 const snapSchool = await getDocs(qSchool);
+                 
+                 if (!snapSchool.empty) {
+                     setCurrentSchool(snapSchool.docs[0].data() as SchoolData);
+                     setCurrentUserProfile({ name: adminProfile.name, role: 'Administrator' });
+                     setSuccessMsg(`Welcome, ${adminProfile.name}!`);
+                     setTimeout(() => { setSuccessMsg(''); setView('school-admin-dashboard'); }, 1000);
+                     setLoading(false);
+                     return;
+                 }
+            }
         }
 
-        setCurrentSchool(school);
-        setSuccessMsg("Login Successful!");
-        setTimeout(() => {
-            setSuccessMsg('');
-            setView('school-admin-dashboard');
-        }, 1000);
+        setError("Invalid ID or Password.");
     } catch (err) {
         console.error(err);
         setError("Login failed due to network or server error.");
@@ -787,10 +912,237 @@ export default function App() {
   const handleSuperAdminAccess = async () => { if (superAdminKey !== SUPER_ADMIN_KEY) { setError("Invalid Access Credentials."); return; } setLoading(true); setError(''); try { const [res, sch, stu, tch] = await Promise.all([ getDocs(collection(db, 'Result Data')), getDocs(collection(db, 'School Data')), getDocs(collection(db, 'Student Data')), getDocs(collection(db, 'Teacher Data')) ]); setAllResults(res.docs.map(d => d.data() as ResultData)); setAllSchools(sch.docs.map(d => d.data() as SchoolData)); setAllStudents(stu.docs.map(d => d.data() as StudentData)); setAllTeachers(tch.docs.map(d => d.data() as TeacherData)); setView('super-admin-view'); setAdminTab('overview'); } catch(err: any) { console.error(err); setError("Failed to fetch database. Check internet connection."); } finally { setLoading(false); } };
   const getDaysInMonth = (date: Date) => { const year = date.getFullYear(); const month = date.getMonth(); const days = new Date(year, month + 1, 0).getDate(); return Array.from({ length: days }, (_, i) => { const d = new Date(year, month, i + 1); return { date: d, iso: d.toISOString().split('T')[0], dayNum: i + 1, isWeekend: d.getDay() === 0 || d.getDay() === 6 }; }); };
   const renderAttendanceView = () => { return ( <div className="max-w-2xl mx-auto bg-white p-8 rounded-2xl shadow-xl animate-slide-up text-center"> <h2 className="text-3xl font-bold text-gray-800 mb-6 flex items-center justify-center gap-2"><CalendarCheck className="text-purple-600" /> Class Attendance</h2> <div className="mb-8"> <p className="text-gray-500 mb-4">Select an action below.</p> <div className="grid grid-cols-1 md:grid-cols-3 gap-4"> <button onClick={() => { setScannerContext('attendance_in'); setShowScanner(true); setError(''); setSuccessMsg(''); setAttendanceStatus(null); setAttendanceReport(null); setSelectedDateLog(null); }} className="flex flex-col items-center justify-center p-5 bg-green-50 border-2 border-green-200 rounded-2xl hover:bg-green-100 hover:border-green-500 transition-all group"> <LogIn size={32} className="text-green-600 mb-1 group-hover:scale-110 transition-transform" /> <span className="text-lg font-bold text-green-700">Clock In</span> </button> <button onClick={() => { setScannerContext('attendance_out'); setShowScanner(true); setError(''); setSuccessMsg(''); setAttendanceStatus(null); setAttendanceReport(null); setSelectedDateLog(null); }} className="flex flex-col items-center justify-center p-5 bg-red-50 border-2 border-red-200 rounded-2xl hover:bg-red-100 hover:border-red-500 transition-all group"> <LogOut size={32} className="text-red-600 mb-1 group-hover:scale-110 transition-transform" /> <span className="text-lg font-bold text-red-700">Clock Out</span> </button> <button onClick={() => { setScannerContext('check_attendance'); setShowScanner(true); setError(''); setSuccessMsg(''); setAttendanceStatus(null); setAttendanceReport(null); setSelectedDateLog(null); }} className="flex flex-col items-center justify-center p-5 bg-blue-50 border-2 border-blue-200 rounded-2xl hover:bg-blue-100 hover:border-blue-500 transition-all group"> <Calendar size={32} className="text-blue-600 mb-1 group-hover:scale-110 transition-transform" /> <span className="text-lg font-bold text-blue-700">Check Report</span> </button> </div> </div> {attendanceStatus && (<div className={`p-6 rounded-xl border-2 animate-fade-in ${attendanceStatus.type === 'in' ? 'bg-green-50 border-green-200 text-green-800' : 'bg-red-50 border-red-200 text-red-800'}`}><div className="text-5xl mb-2">{attendanceStatus.type === 'in' ? '👋' : '🏠'}</div><h3 className="text-2xl font-bold">{attendanceStatus.name}</h3><p className="text-lg font-medium">{attendanceStatus.type === 'in' ? 'Clocked IN' : 'Clocked OUT'} at <span className="font-mono font-bold bg-white/50 px-2 rounded">{attendanceStatus.time}</span></p></div>)} {attendanceReport && ( <div className="mt-8 border-t pt-8 animate-fade-in"> <div className="bg-gray-50 p-4 rounded-xl mb-6 flex flex-wrap gap-4 items-end justify-center border border-gray-100"> <div> <label className="text-xs font-bold text-gray-500 block mb-1">Start Date</label> <input type="date" value={reportStartDate} onChange={e => setReportStartDate(e.target.value)} className="p-2 border rounded text-sm w-36 outline-none focus:ring-1 focus:ring-purple-500 bg-white"/> </div> <div> <label className="text-xs font-bold text-gray-500 block mb-1">End Date</label> <input type="date" value={reportEndDate} onChange={e => setReportEndDate(e.target.value)} className="p-2 border rounded text-sm w-36 outline-none focus:ring-1 focus:ring-purple-500 bg-white"/> </div> <button onClick={handleDownloadAttendanceReport} className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 h-[38px] transition shadow-md"> <FileDown size={18}/> Download PDF </button> </div> <div className="grid grid-cols-7 gap-1 mb-2 text-xs font-bold text-gray-400"><div>Sun</div><div>Mon</div><div>Tue</div><div>Wed</div><div>Thu</div><div>Fri</div><div>Sat</div></div> <div className="grid grid-cols-7 gap-1"> {getDaysInMonth(reportMonth).map((d) => { const log = attendanceReport.logs.find(log => log.date === d.iso); const isLogged = !!log; return (<div key={d.dayNum} onClick={() => { if(isLogged) setSelectedDateLog(log || null); }} className={`aspect-square flex items-center justify-center rounded-lg text-sm font-bold relative group ${isLogged ? 'bg-green-500 text-white cursor-pointer' : 'bg-gray-50 text-gray-400'}`}>{d.dayNum}</div>); })} </div> </div> )} {selectedDateLog && ( <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4 animate-fade-in" onClick={() => setSelectedDateLog(null)}> <div className="bg-white p-6 rounded-2xl shadow-2xl max-w-sm w-full m-4 relative" onClick={e => e.stopPropagation()}> <button onClick={() => setSelectedDateLog(null)} className="absolute top-4 right-4 text-gray-400 hover:text-gray-600">✕</button> <h3 className="font-bold text-xl text-gray-800 mb-1">Attendance Details</h3> <p className="text-sm text-gray-500 mb-6 font-medium">{selectedDateLog.date}</p> <div className="space-y-4"><div className="bg-green-50 p-4 rounded-xl border border-green-100"><p className="text-2xl font-mono font-bold text-green-900 mb-2">{selectedDateLog.clockInTime || '---'}</p><div className="text-sm text-green-800 bg-white/60 p-2 rounded-lg"><div className="flex gap-1 mb-1"><span className="font-semibold text-green-900 w-16">Guardian:</span> <span>{selectedDateLog.dropOffGuardian || 'N/A'}</span></div></div></div><div className="bg-red-50 p-4 rounded-xl border border-red-100"><p className="text-2xl font-mono font-bold text-red-900 mb-2">{selectedDateLog.clockOutTime || '---'}</p><div className="text-sm text-red-800 bg-white/60 p-2 rounded-lg"><div className="flex gap-1 mb-1"><span className="font-semibold text-red-900 w-16">Guardian:</span> <span>{selectedDateLog.pickUpGuardian || 'N/A'}</span></div></div></div></div> </div> </div> )} <button onClick={() => setView('home')} className="mt-8 text-gray-500 hover:text-gray-800 font-medium">Back to Home</button> </div> ); };
-  const renderSuperAdminView = () => ( <div className="max-w-6xl mx-auto space-y-6 animate-fade-in"> <div className="flex flex-col md:flex-row justify-between items-center bg-white p-6 rounded-2xl shadow-sm border-b gap-4"> <h2 className="text-2xl font-bold text-gray-800 flex items-center gap-2"><Database className="text-red-600" /> Master Database</h2> <div className="flex gap-2 flex-wrap"> <select value={adminTab} onChange={(e) => setAdminTab(e.target.value as any)} className="p-2 border rounded-lg bg-gray-50 text-sm font-bold outline-none focus:ring-2 focus:ring-purple-500 cursor-pointer"> <option value="overview">Overview</option> <option value="schools">Schools</option> <option value="students">Students</option> <option value="teachers">Teachers</option> <option value="results">Results</option> <option value="id_cards">ID Cards</option> </select> <button onClick={() => setView('admin-dashboard')} className="bg-gray-200 hover:bg-gray-300 text-gray-700 px-4 py-2 rounded-lg font-bold text-sm">Close</button> </div> </div> <div className="bg-white p-6 rounded-2xl shadow-xl min-h-[500px]"> {adminTab === 'overview' && (<div className="grid grid-cols-2 md:grid-cols-4 gap-4"><div className="p-4 bg-orange-50 border border-orange-100 rounded-xl text-center"><h3 className="text-3xl font-bold text-orange-600">{allSchools.length}</h3><p className="text-sm text-gray-500 uppercase font-bold">Schools</p></div></div>)} {adminTab === 'schools' && (<div className="overflow-x-auto"><table className="w-full text-sm text-left border-collapse"><thead className="bg-gray-100 text-gray-600 uppercase text-xs"><tr><th className="p-3 border-b">School Name</th><th className="p-3 border-b">ID</th></tr></thead><tbody className="divide-y">{allSchools.map((s, i) => (<tr key={i} className="hover:bg-gray-50"><td className="p-3 font-bold">{s.schoolName}</td><td className="p-3 font-mono text-xs">{s.schoolId}</td></tr>))}</tbody></table></div>)} {adminTab === 'students' && (<div className="space-y-4"><div className="relative"><Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} /><input type="text" placeholder="Search students..." className="w-full pl-10 pr-4 py-2 border rounded-lg outline-none focus:ring-2 focus:ring-blue-500" onChange={(e) => setMasterSearch(e.target.value)} /></div><div className="overflow-x-auto max-h-[500px]"><table className="w-full text-sm text-left border-collapse"><thead className="bg-gray-100 text-gray-600 uppercase text-xs sticky top-0"><tr><th className="p-3 border-b">Name</th><th className="p-3 border-b">Adm No</th></tr></thead><tbody className="divide-y">{allStudents.filter(s => s.studentName.toLowerCase().includes(masterSearch.toLowerCase())).map((s, i) => (<tr key={i} className="hover:bg-gray-50"><td className="p-3 font-bold">{s.studentName}</td><td className="p-3">{s.admissionNumber}</td></tr>))}</tbody></table></div></div>)} {adminTab === 'teachers' && (<div className="overflow-x-auto"><table className="w-full text-sm text-left border-collapse"><thead className="bg-gray-100 text-gray-600 uppercase text-xs"><tr><th className="p-3 border-b">Name</th><th className="p-3 border-b">ID</th></tr></thead><tbody className="divide-y">{allTeachers.map((t, i) => (<tr key={i} className="hover:bg-gray-50"><td className="p-3 font-bold">{t.teacherName}</td><td className="p-3 font-mono text-xs">{t.generatedId}</td></tr>))}</tbody></table></div>)} {adminTab === 'id_cards' && (<IdCardManager students={allStudents} teachers={allTeachers} />)} {adminTab === 'results' && (<div className="text-center text-gray-500 py-12 bg-gray-50 rounded-xl border border-dashed border-gray-300"><Database size={48} className="mx-auto text-gray-300 mb-2" /><p>Results are optimized for search-based access.</p></div>)} </div> </div> );
+  
+  const renderSuperAdminView = () => {
+    // Define tabs configuration
+    const tabs = [
+        { id: 'overview', label: 'Overview', icon: LayoutDashboard, color: 'bg-indigo-600', hover: 'hover:bg-indigo-700', light: 'bg-indigo-50', text: 'text-indigo-700' },
+        { id: 'schools', label: 'Schools', icon: School, color: 'bg-orange-600', hover: 'hover:bg-orange-700', light: 'bg-orange-50', text: 'text-orange-700' },
+        { id: 'students', label: 'Students', icon: Users, color: 'bg-blue-600', hover: 'hover:bg-blue-700', light: 'bg-blue-50', text: 'text-blue-700' },
+        { id: 'teachers', label: 'Teachers', icon: GraduationCap, color: 'bg-yellow-600', hover: 'hover:bg-yellow-700', light: 'bg-yellow-50', text: 'text-yellow-700' },
+        { id: 'results', label: 'Results', icon: FileText, color: 'bg-purple-600', hover: 'hover:bg-purple-700', light: 'bg-purple-50', text: 'text-purple-700' },
+        { id: 'id_cards', label: 'ID Cards', icon: CreditCard, color: 'bg-emerald-600', hover: 'hover:bg-emerald-700', light: 'bg-emerald-50', text: 'text-emerald-700' },
+    ];
 
-  const renderSchoolAdminDashboard = () => (
-    <div className="max-w-6xl mx-auto space-y-6 animate-fade-in">
+    return (
+        <div className="max-w-7xl mx-auto animate-fade-in flex flex-col md:flex-row gap-6">
+            {/* Left Sidebar */}
+            <div className="w-full md:w-64 shrink-0 space-y-4">
+                <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
+                    <h2 className="text-xl font-bold text-gray-800 flex items-center gap-2 mb-6">
+                        <Database className="text-red-600" /> Master DB
+                    </h2>
+                    
+                    <div className="flex flex-col gap-2">
+                        {tabs.map((tab) => {
+                            const Icon = tab.icon;
+                            const isActive = adminTab === tab.id;
+                            return (
+                                <button
+                                    key={tab.id}
+                                    onClick={() => setAdminTab(tab.id as any)}
+                                    className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-all font-medium text-sm ${
+                                        isActive 
+                                            ? `${tab.color} text-white shadow-lg shadow-${tab.color.split('-')[1]}-200` 
+                                            : `text-gray-600 hover:bg-gray-50`
+                                    }`}
+                                >
+                                    <Icon size={18} />
+                                    {tab.label}
+                                </button>
+                            );
+                        })}
+                    </div>
+                </div>
+
+                <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-200">
+                     <button onClick={() => setView('admin-dashboard')} className="w-full flex items-center justify-center gap-2 text-gray-500 hover:text-red-600 transition p-2 font-medium text-sm">
+                        <LogOut size={16} /> Exit Dashboard
+                     </button>
+                </div>
+            </div>
+
+            {/* Main Content Area */}
+            <div className="flex-1 bg-white p-8 rounded-2xl shadow-xl border border-gray-100 min-h-[600px]">
+                <div className="mb-6 pb-4 border-b border-gray-100 flex justify-between items-center">
+                    <div>
+                        <h3 className="text-2xl font-bold text-gray-800 capitalize">{adminTab.replace('_', ' ')}</h3>
+                        <p className="text-gray-500 text-sm">Manage system-wide data.</p>
+                    </div>
+                </div>
+
+                {adminTab === 'overview' && (
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                        <div className="p-6 bg-orange-50 border border-orange-100 rounded-2xl flex items-center gap-4">
+                            <div className="w-12 h-12 bg-white rounded-full flex items-center justify-center text-orange-600 shadow-sm">
+                                <School size={24} />
+                            </div>
+                            <div>
+                                <h3 className="text-3xl font-bold text-gray-800">{allSchools.length}</h3>
+                                <p className="text-sm text-gray-500 font-bold uppercase">Schools Registered</p>
+                            </div>
+                        </div>
+                         <div className="p-6 bg-blue-50 border border-blue-100 rounded-2xl flex items-center gap-4">
+                            <div className="w-12 h-12 bg-white rounded-full flex items-center justify-center text-blue-600 shadow-sm">
+                                <Users size={24} />
+                            </div>
+                            <div>
+                                <h3 className="text-3xl font-bold text-gray-800">{allStudents.length}</h3>
+                                <p className="text-sm text-gray-500 font-bold uppercase">Students Active</p>
+                            </div>
+                        </div>
+                        <div className="p-6 bg-yellow-50 border border-yellow-100 rounded-2xl flex items-center gap-4">
+                            <div className="w-12 h-12 bg-white rounded-full flex items-center justify-center text-yellow-600 shadow-sm">
+                                <GraduationCap size={24} />
+                            </div>
+                            <div>
+                                <h3 className="text-3xl font-bold text-gray-800">{allTeachers.length}</h3>
+                                <p className="text-sm text-gray-500 font-bold uppercase">Teachers Onboarded</p>
+                            </div>
+                        </div>
+                         <div className="p-6 bg-purple-50 border border-purple-100 rounded-2xl flex items-center gap-4">
+                            <div className="w-12 h-12 bg-white rounded-full flex items-center justify-center text-purple-600 shadow-sm">
+                                <FileText size={24} />
+                            </div>
+                            <div>
+                                <h3 className="text-3xl font-bold text-gray-800">{allResults.length}</h3>
+                                <p className="text-sm text-gray-500 font-bold uppercase">Results Published</p>
+                            </div>
+                        </div>
+                    </div>
+                )}
+                
+                {adminTab === 'schools' && (
+                     <div className="overflow-x-auto">
+                        <table className="w-full text-sm text-left border-collapse">
+                            <thead className="bg-gray-50 text-gray-600 uppercase text-xs">
+                                <tr>
+                                    <th className="p-4 border-b font-bold">School Name</th>
+                                    <th className="p-4 border-b font-bold">ID</th>
+                                    <th className="p-4 border-b font-bold">Email</th>
+                                    <th className="p-4 border-b font-bold text-right">Phone</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-gray-100">
+                                {allSchools.map((s, i) => (
+                                    <tr key={i} className="hover:bg-gray-50 transition-colors">
+                                        <td className="p-4">
+                                            <div className="flex items-center gap-3">
+                                                <div className="w-8 h-8 rounded bg-gray-100 flex items-center justify-center overflow-hidden border">
+                                                    {s.schoolLogo ? <img src={s.schoolLogo} className="w-full h-full object-cover"/> : <School size={16} className="text-gray-400"/>}
+                                                </div>
+                                                <span className="font-bold text-gray-800">{s.schoolName}</span>
+                                            </div>
+                                        </td>
+                                        <td className="p-4 font-mono text-xs bg-gray-50/50 text-gray-600 rounded">{s.schoolId}</td>
+                                        <td className="p-4 text-gray-600">{s.schoolEmail || '-'}</td>
+                                        <td className="p-4 text-gray-600 text-right">{s.schoolPhone || '-'}</td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                )}
+
+                {adminTab === 'students' && (
+                    <div className="space-y-4">
+                        <div className="relative">
+                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
+                            <input 
+                                type="text" 
+                                placeholder="Search by name, ID or school..." 
+                                className="w-full pl-10 pr-4 py-3 border rounded-xl outline-none focus:ring-2 focus:ring-blue-500 bg-gray-50" 
+                                onChange={(e) => setMasterSearch(e.target.value)} 
+                            />
+                        </div>
+                        <div className="overflow-x-auto max-h-[500px] border rounded-xl">
+                            <table className="w-full text-sm text-left border-collapse">
+                                <thead className="bg-gray-50 text-gray-600 uppercase text-xs sticky top-0 z-10">
+                                    <tr>
+                                        <th className="p-4 border-b">Student Name</th>
+                                        <th className="p-4 border-b">Admission No</th>
+                                        <th className="p-4 border-b">School ID</th>
+                                        <th className="p-4 border-b">Class</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-gray-100">
+                                    {allStudents
+                                        .filter(s => 
+                                            s.studentName.toLowerCase().includes(masterSearch.toLowerCase()) ||
+                                            s.admissionNumber.toLowerCase().includes(masterSearch.toLowerCase()) ||
+                                            s.schoolId.toLowerCase().includes(masterSearch.toLowerCase())
+                                        )
+                                        .map((s, i) => (
+                                        <tr key={i} className="hover:bg-gray-50">
+                                            <td className="p-4 font-bold text-gray-800">{s.studentName}</td>
+                                            <td className="p-4 text-gray-600 font-mono text-xs">{s.admissionNumber}</td>
+                                            <td className="p-4 text-gray-500 text-xs">{s.schoolId}</td>
+                                            <td className="p-4 text-gray-600"><span className="bg-blue-50 text-blue-700 px-2 py-1 rounded text-xs font-bold">{s.classLevel}</span></td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                )}
+
+                {adminTab === 'teachers' && (
+                     <div className="overflow-x-auto">
+                        <table className="w-full text-sm text-left border-collapse">
+                            <thead className="bg-gray-50 text-gray-600 uppercase text-xs">
+                                <tr>
+                                    <th className="p-4 border-b font-bold">Name</th>
+                                    <th className="p-4 border-b font-bold">Teacher ID</th>
+                                    <th className="p-4 border-b font-bold">School</th>
+                                    <th className="p-4 border-b font-bold">Contact</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-gray-100">
+                                {allTeachers.map((t, i) => (
+                                    <tr key={i} className="hover:bg-gray-50 transition-colors">
+                                        <td className="p-4 font-bold text-gray-800">{t.teacherName}</td>
+                                        <td className="p-4 font-mono text-xs text-yellow-600 bg-yellow-50 rounded w-fit px-2">{t.generatedId}</td>
+                                        <td className="p-4 text-gray-600 text-xs">{t.schoolName}</td>
+                                        <td className="p-4 text-gray-500 text-xs">{t.email} <br/> {t.phoneNumber}</td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                )}
+
+                {adminTab === 'id_cards' && (
+                    <IdCardManager students={allStudents} teachers={allTeachers} />
+                )}
+
+                {adminTab === 'results' && (
+                    <div className="text-center text-gray-500 py-12 bg-gray-50 rounded-xl border-2 border-dashed border-gray-200">
+                        <div className="w-16 h-16 bg-purple-100 rounded-full flex items-center justify-center mx-auto mb-4 text-purple-600">
+                             <Database size={32} />
+                        </div>
+                        <h3 className="text-lg font-bold text-gray-800">Result Database</h3>
+                        <p className="max-w-md mx-auto mt-2">Results are optimized for individual search retrieval to ensure performance. Use the "Edit Result" portal to find specific records.</p>
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+};
+
+  const renderSchoolAdminDashboard = () => {
+    // Define tabs
+    const tabs = [
+        { id: 'overview', label: 'Overview', icon: LayoutDashboard, color: 'bg-blue-600', hover: 'hover:bg-blue-700' },
+        { id: 'teachers', label: 'Teachers', icon: GraduationCap, color: 'bg-yellow-600', hover: 'hover:bg-yellow-700' },
+        { id: 'students', label: 'Students', icon: Users, color: 'bg-green-600', hover: 'hover:bg-green-700' },
+        { id: 'results', label: 'Results', icon: FileText, color: 'bg-purple-600', hover: 'hover:bg-purple-700' },
+        { id: 'exams', label: 'CBT Exams', icon: Laptop2, color: 'bg-indigo-600', hover: 'hover:bg-indigo-700' },
+        { id: 'attendance', label: 'Attendance', icon: CalendarCheck, color: 'bg-red-600', hover: 'hover:bg-red-700' },
+        { id: 'admins', label: 'Settings & Admins', icon: Settings, color: 'bg-gray-600', hover: 'hover:bg-gray-700' },
+    ];
+
+    return (
+    <div className="max-w-7xl mx-auto animate-fade-in flex flex-col md:flex-row gap-6">
         {/* School QR Modal */}
         {showSchoolQr && currentSchool && (
             <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-fade-in" onClick={() => setShowSchoolQr(false)}>
@@ -822,39 +1174,104 @@ export default function App() {
             </div>
         )}
 
-        <div className="bg-white p-6 rounded-2xl shadow-sm border-b flex flex-col md:flex-row justify-between items-center gap-4">
-            <div className="flex items-center gap-4">
-                 <div className="w-12 h-12 bg-orange-100 rounded-full flex items-center justify-center text-orange-600 border border-orange-200 cursor-pointer hover:bg-orange-200 transition" onClick={() => setShowSchoolQr(true)}>
-                    <School size={24} />
-                 </div>
-                 <div>
-                    <h2 className="text-2xl font-bold text-gray-800">{currentSchool?.schoolName}</h2>
-                    <div className="flex items-center gap-2 text-sm text-gray-500 font-mono">
-                        <span>ID: {currentSchool?.schoolId}</span>
-                        <button onClick={() => setShowSchoolQr(true)} className="text-orange-600 hover:text-orange-700 bg-orange-50 px-2 py-0.5 rounded flex items-center gap-1 text-xs font-bold" title="View QR">
-                            <QrCode size={14}/> QR
-                        </button>
+        {/* Edit Teacher Modal */}
+        {editingTeacher && (
+             <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-fade-in">
+                <div className="bg-white rounded-2xl shadow-2xl p-6 max-w-md w-full">
+                    <h3 className="text-xl font-bold text-gray-800 mb-4 flex items-center gap-2">
+                        <UserCog size={20} className="text-orange-600"/> Edit Teacher Profile
+                    </h3>
+                    <div className="space-y-4">
+                        <div>
+                            <label className="text-xs font-bold text-gray-500">Name</label>
+                            <input 
+                                type="text" 
+                                className="w-full p-2 border rounded" 
+                                value={editingTeacher.teacherName}
+                                onChange={(e) => setEditingTeacher({...editingTeacher, teacherName: e.target.value})}
+                            />
+                        </div>
+                        <div>
+                            <label className="text-xs font-bold text-gray-500">Email</label>
+                            <input 
+                                type="email" 
+                                className="w-full p-2 border rounded" 
+                                value={editingTeacher.email}
+                                onChange={(e) => setEditingTeacher({...editingTeacher, email: e.target.value})}
+                            />
+                        </div>
+                        <div>
+                            <label className="text-xs font-bold text-gray-500">Phone</label>
+                            <input 
+                                type="text" 
+                                className="w-full p-2 border rounded" 
+                                value={editingTeacher.phoneNumber}
+                                onChange={(e) => setEditingTeacher({...editingTeacher, phoneNumber: e.target.value})}
+                            />
+                        </div>
                     </div>
+                    <div className="flex gap-3 mt-6">
+                        <button onClick={() => setEditingTeacher(null)} className="flex-1 py-2 bg-gray-100 rounded text-gray-700 font-bold hover:bg-gray-200">Cancel</button>
+                        <button onClick={handleUpdateTeacher} className="flex-1 py-2 bg-orange-600 text-white rounded font-bold hover:bg-orange-700">Update</button>
+                    </div>
+                </div>
+             </div>
+        )}
+
+        {/* Sidebar */}
+        <div className="w-full md:w-64 shrink-0 space-y-4">
+             <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
+                 {/* School Profile Header in Sidebar */}
+                 <div className="flex flex-col items-center mb-6 text-center">
+                     <div className="w-16 h-16 bg-orange-100 rounded-full flex items-center justify-center text-orange-600 border border-orange-200 mb-2 overflow-hidden" onClick={() => setShowSchoolQr(true)}>
+                         {currentSchool?.schoolLogo ? <img src={currentSchool.schoolLogo} className="w-full h-full object-cover"/> : <School size={32} />}
+                     </div>
+                     <h2 className="font-bold text-gray-800 leading-tight">{currentSchool?.schoolName}</h2>
+                     <p className="text-xs text-gray-500 mt-1 font-bold">{currentUserProfile?.name}</p>
                  </div>
-            </div>
-            <div className="flex items-center gap-3">
-                 <select 
-                    value={schoolDashboardTab} 
-                    onChange={(e) => setSchoolDashboardTab(e.target.value as any)}
-                    className="p-2 border rounded-lg bg-gray-50 text-sm font-bold outline-none focus:ring-2 focus:ring-orange-500"
-                 >
-                    <option value="overview">Overview</option>
-                    <option value="teachers">Teachers</option>
-                    <option value="students">Students</option>
-                    <option value="results">Results</option>
-                    <option value="exams">Exams</option>
-                    <option value="attendance">Attendance</option>
-                 </select>
-                 <button onClick={() => { setCurrentSchool(null); setView('home'); }} className="text-red-500 font-bold hover:bg-red-50 px-4 py-2 rounded-lg transition">Logout</button>
-            </div>
+                 
+                 <div className="flex flex-col gap-2">
+                    {tabs.map((tab) => {
+                        const Icon = tab.icon;
+                        const isActive = schoolDashboardTab === tab.id;
+                        return (
+                            <button
+                                key={tab.id}
+                                onClick={() => setSchoolDashboardTab(tab.id as any)}
+                                className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-all font-medium text-sm ${
+                                    isActive 
+                                        ? `${tab.color} text-white shadow-lg shadow-${tab.color.split('-')[1]}-200` 
+                                        : `text-gray-600 hover:bg-gray-50`
+                                }`}
+                            >
+                                <Icon size={18} />
+                                {tab.label}
+                            </button>
+                        );
+                    })}
+                 </div>
+             </div>
+             {/* Logout */}
+             <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-200">
+                 <button onClick={() => { setCurrentSchool(null); setCurrentUserProfile(null); setView('home'); }} className="w-full flex items-center justify-center gap-2 text-gray-500 hover:text-red-600 transition p-2 font-medium text-sm">
+                    <LogOut size={16} /> Logout
+                 </button>
+             </div>
         </div>
 
-        <div className="bg-white p-6 rounded-2xl shadow-xl min-h-[400px]">
+        {/* Main Content Area */}
+        <div className="flex-1 bg-white p-8 rounded-2xl shadow-xl border border-gray-100 min-h-[600px]">
+             {/* Content Header */}
+             <div className="mb-6 pb-4 border-b border-gray-100 flex justify-between items-center">
+                 <div>
+                     <h3 className="text-2xl font-bold text-gray-800 capitalize">{schoolDashboardTab.replace('_', ' ')}</h3>
+                     <div className="flex items-center gap-2 mt-1">
+                        <span className="text-xs font-mono bg-gray-100 px-2 py-1 rounded text-gray-600">ID: {currentSchool?.schoolId}</span>
+                        <button onClick={() => setShowSchoolQr(true)} className="text-orange-600 text-xs font-bold flex items-center gap-1 hover:bg-orange-50 px-2 py-1 rounded"><QrCode size={12}/> QR Code</button>
+                     </div>
+                 </div>
+             </div>
+
              {loading && <div className="flex justify-center py-12"><Loader2 className="animate-spin text-orange-500" size={32} /></div>}
              
              {!loading && schoolDashboardTab === 'overview' && (
@@ -886,19 +1303,81 @@ export default function App() {
                                  <th className="p-3">Name</th>
                                  <th className="p-3">Teacher ID</th>
                                  <th className="p-3">Email</th>
+                                 <th className="p-3 text-right">Actions</th>
                              </tr>
                          </thead>
                          <tbody className="divide-y">
                              {schoolData.teachers.map((t, i) => (
-                                 <tr key={i} className="hover:bg-gray-50">
+                                 <tr key={i} className="hover:bg-gray-50 group">
                                      <td className="p-3 font-bold">{t.teacherName}</td>
                                      <td className="p-3 font-mono">{t.generatedId}</td>
                                      <td className="p-3">{t.email}</td>
+                                     <td className="p-3 text-right flex justify-end gap-2">
+                                         <button onClick={() => setEditingTeacher(t)} className="text-blue-500 hover:text-blue-700 bg-blue-50 p-2 rounded-full"><Edit size={16}/></button>
+                                         <button onClick={() => t.id && handleDeleteTeacher(t.id)} className="text-red-500 hover:text-red-700 bg-red-50 p-2 rounded-full"><Trash2 size={16}/></button>
+                                     </td>
                                  </tr>
                              ))}
-                             {schoolData.teachers.length === 0 && <tr><td colSpan={3} className="p-4 text-center text-gray-400">No teachers found.</td></tr>}
+                             {schoolData.teachers.length === 0 && <tr><td colSpan={4} className="p-4 text-center text-gray-400">No teachers found.</td></tr>}
                          </tbody>
                      </table>
+                 </div>
+             )}
+
+             {!loading && schoolDashboardTab === 'admins' && (
+                 <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                     <div>
+                         <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center gap-2"><ShieldCheck size={20}/> Authorized Admins</h3>
+                         <div className="space-y-3">
+                             <div className="flex justify-between items-center p-3 bg-gray-50 rounded-lg border border-gray-200">
+                                 <div>
+                                     <p className="font-bold text-gray-800">Master Admin</p>
+                                     <p className="text-xs text-gray-500 font-mono">{currentSchool?.schoolId}</p>
+                                 </div>
+                                 <span className="text-xs bg-orange-100 text-orange-700 px-2 py-1 rounded font-bold">Owner</span>
+                             </div>
+                             {schoolAdmins.map((admin) => (
+                                 <div key={admin.id} className="flex justify-between items-center p-3 bg-white rounded-lg border border-gray-100 shadow-sm">
+                                     <div>
+                                         <p className="font-bold text-gray-800">{admin.name}</p>
+                                         <div className="flex gap-2 text-xs text-gray-500 font-mono">
+                                             <span>ID: {admin.adminId}</span>
+                                             <span>Pwd: {admin.password}</span>
+                                         </div>
+                                     </div>
+                                     <button onClick={() => admin.id && handleDeleteSubAdmin(admin.id)} className="text-red-400 hover:text-red-600"><Trash2 size={16}/></button>
+                                 </div>
+                             ))}
+                             {schoolAdmins.length === 0 && <p className="text-sm text-gray-400 italic">No additional admins configured.</p>}
+                         </div>
+                     </div>
+                     
+                     <div className="bg-gray-50 p-6 rounded-xl border border-gray-200">
+                         <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center gap-2"><UserPlus size={20}/> Add New Admin</h3>
+                         <div className="space-y-4">
+                             <div>
+                                 <label className="text-xs font-bold text-gray-500 uppercase">Admin Name</label>
+                                 <input 
+                                    type="text" 
+                                    className="w-full p-2 border rounded bg-white" 
+                                    placeholder="e.g. Vice Principal"
+                                    value={newAdminData.name}
+                                    onChange={e => setNewAdminData({...newAdminData, name: e.target.value})}
+                                 />
+                             </div>
+                             <div>
+                                 <label className="text-xs font-bold text-gray-500 uppercase">Create Password</label>
+                                 <input 
+                                    type="text" 
+                                    className="w-full p-2 border rounded bg-white" 
+                                    placeholder="Secret Code"
+                                    value={newAdminData.password}
+                                    onChange={e => setNewAdminData({...newAdminData, password: e.target.value})}
+                                 />
+                             </div>
+                             <button onClick={handleAddSubAdmin} className="w-full py-2 bg-orange-600 text-white font-bold rounded hover:bg-orange-700">Create Admin Access</button>
+                         </div>
+                     </div>
                  </div>
              )}
 
@@ -1007,7 +1486,7 @@ export default function App() {
              )}
         </div>
     </div>
-  );
+  )};
 
   return (
     <div className="min-h-screen bg-gray-100 font-sans text-gray-900 pb-12 print:bg-white print:p-0">
@@ -1300,7 +1779,7 @@ export default function App() {
               </button>
               <button onClick={() => { setRegData({}); setView('register-school'); }} className="bg-white p-8 rounded-xl shadow-md hover:shadow-xl transition-all border-2 border-transparent hover:border-purple-500 text-left group">
                 <div className="w-12 h-12 bg-orange-100 text-orange-600 rounded-full flex items-center justify-center mb-4 group-hover:bg-orange-600 group-hover:text-white transition-colors"><Building2 size={24} /></div>
-                <h3 className="text-xl font-bold text-gray-800 mb-2">Register School</h3>
+                <h3 className="text-xl font-bold text-gray-800 mb-2">School Admin</h3>
                 <p className="text-sm text-gray-500">Register new institution with Code and Logo.</p>
               </button>
                <button onClick={() => setView('teachers-portal')} className="bg-white p-8 rounded-xl shadow-md hover:shadow-xl transition-all border-2 border-transparent hover:border-yellow-500 text-left group">
@@ -1416,11 +1895,15 @@ export default function App() {
                 <button onClick={() => setView('admin-dashboard')} className="flex-1 py-3 bg-gray-200 rounded text-gray-700 font-bold">Cancel</button>
                 <button onClick={handleRegisterSchool} disabled={loading} className="flex-1 py-3 bg-orange-600 text-white rounded font-bold">{loading ? 'Registering...' : 'Register School'}</button>
               </div>
-              <div className="text-center mt-4">
-                  <button onClick={() => setView('school-admin-login')} className="text-orange-600 hover:underline text-sm font-bold">Already Registered? Login to Dashboard</button>
+              
+              <div className="mt-6 border-t pt-6">
+                 <button onClick={() => setView('school-admin-login')} className="w-full py-3 bg-gray-900 text-white rounded-lg font-bold hover:bg-gray-800 flex items-center justify-center gap-2 transition-all">
+                    <LogIn size={18} /> Login to School Dashboard
+                 </button>
               </div>
-              {successMsg && <p className="text-green-600 text-center">{successMsg}</p>}
-              {error && <p className="text-red-600 text-center">{error}</p>}
+
+              {successMsg && <p className="text-green-600 text-center mt-2">{successMsg}</p>}
+              {error && <p className="text-red-600 text-center mt-2">{error}</p>}
             </div>
           </div>
         )}
@@ -1431,15 +1914,15 @@ export default function App() {
                     <School size={32} />
                  </div>
                  <h2 className="text-2xl font-bold text-gray-800 mb-2">School Admin Login</h2>
-                 <p className="text-gray-500 mb-6 text-sm">Access your school's dashboard.</p>
+                 <p className="text-gray-500 mb-6 text-sm">Access your school's dashboard. <br/>Enter School ID (or Admin ID) and Password.</p>
                  
                  <div className="space-y-4 text-left">
                      <div>
-                         <label className="text-xs font-bold text-gray-500 uppercase">School ID</label>
+                         <label className="text-xs font-bold text-gray-500 uppercase">Login ID</label>
                          <input 
                             type="text" 
                             className="w-full p-3 border rounded-lg focus:ring-2 focus:ring-orange-500 outline-none" 
-                            placeholder="e.g. SCH-1234"
+                            placeholder="e.g. SCH-1234 or SCH-1234-A1"
                             value={schoolLogin.id}
                             onChange={(e) => setSchoolLogin({...schoolLogin, id: e.target.value})}
                          />
