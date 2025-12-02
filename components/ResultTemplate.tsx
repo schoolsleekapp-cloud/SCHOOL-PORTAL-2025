@@ -142,7 +142,7 @@ const ResultTemplate: React.FC<ResultTemplateProps> = ({ data, showDownloads = f
         <div className="p-4 md:p-8 space-y-2">
           <div className="grid grid-cols-4 gap-2 text-xs border-b pb-2">
             <div><span className="block text-gray-400 uppercase text-[9px]">Student</span><span className="font-bold">{data.studentName}</span></div>
-            <div><span className="block text-gray-400 uppercase text-[9px]">Admin No</span><span className="font-bold">{data.admissionNumber}</span></div>
+            <div><span className="block text-gray-400 uppercase text-[9px]">Student ID</span><span className="font-bold">{data.admissionNumber}</span></div>
             <div><span className="block text-gray-400 uppercase text-[9px]">Class</span><span className="font-bold">{data.classLevel} {data.position && `(${data.position})`}</span></div>
             <div><span className="block text-gray-400 uppercase text-[9px]">Term</span><span className="font-bold">{data.term}, {data.session}</span></div>
           </div>
@@ -187,16 +187,16 @@ const ResultTemplate: React.FC<ResultTemplateProps> = ({ data, showDownloads = f
             </table>
           </div>
           
-          <div className="grid grid-cols-2 gap-4 pt-1">
+          <div className="grid grid-cols-3 gap-2 pt-1">
             <div className="border rounded p-2">
-              <h4 style={{ color: themeColor }} className="font-bold text-[10px] uppercase mb-1 border-b pb-1">Affective Domain (1-5)</h4>
-              <div className="grid grid-cols-2 gap-x-2 gap-y-1 text-[9px]">
+              <h4 style={{ color: themeColor }} className="font-bold text-[9px] uppercase mb-1 border-b pb-1">Affective (1-5)</h4>
+              <div className="grid grid-cols-1 gap-1 text-[8px]">
                 {data.affective?.map((item, i) => (
-                  <div key={i} className="flex justify-between">
-                    <span className="text-gray-600">{item.name}</span>
+                  <div key={i} className="flex justify-between items-center">
+                    <span className="text-gray-600 truncate mr-1">{item.name}</span>
                     <div className="flex gap-0.5">
                       {[...Array(5)].map((_, r) => (
-                        <div key={r} className={`w-1.5 h-1.5 rounded-full ${r < item.rating ? 'bg-gray-800' : 'bg-gray-200'}`}></div>
+                        <div key={r} className={`w-1 h-1 rounded-full ${r < item.rating ? 'bg-gray-800' : 'bg-gray-200'}`}></div>
                       ))}
                     </div>
                   </div>
@@ -204,14 +204,29 @@ const ResultTemplate: React.FC<ResultTemplateProps> = ({ data, showDownloads = f
               </div>
             </div>
             <div className="border rounded p-2">
-              <h4 style={{ color: themeColor }} className="font-bold text-[10px] uppercase mb-1 border-b pb-1">Psychomotor Skills (1-5)</h4>
-              <div className="grid grid-cols-2 gap-x-2 gap-y-1 text-[9px]">
+              <h4 style={{ color: themeColor }} className="font-bold text-[9px] uppercase mb-1 border-b pb-1">Psychomotor (1-5)</h4>
+              <div className="grid grid-cols-1 gap-1 text-[8px]">
                 {data.psychomotor?.map((item, i) => (
-                  <div key={i} className="flex justify-between">
-                    <span className="text-gray-600">{item.name}</span>
+                  <div key={i} className="flex justify-between items-center">
+                    <span className="text-gray-600 truncate mr-1">{item.name}</span>
                     <div className="flex gap-0.5">
                       {[...Array(5)].map((_, r) => (
-                        <div key={r} className={`w-1.5 h-1.5 rounded-full ${r < item.rating ? 'bg-gray-800' : 'bg-gray-200'}`}></div>
+                        <div key={r} className={`w-1 h-1 rounded-full ${r < item.rating ? 'bg-gray-800' : 'bg-gray-200'}`}></div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="border rounded p-2">
+              <h4 style={{ color: themeColor }} className="font-bold text-[9px] uppercase mb-1 border-b pb-1">Cognitive (1-5)</h4>
+              <div className="grid grid-cols-1 gap-1 text-[8px]">
+                {data.cognitive?.map((item, i) => (
+                  <div key={i} className="flex justify-between items-center">
+                    <span className="text-gray-600 truncate mr-1">{item.name}</span>
+                    <div className="flex gap-0.5">
+                      {[...Array(5)].map((_, r) => (
+                        <div key={r} className={`w-1 h-1 rounded-full ${r < item.rating ? 'bg-gray-800' : 'bg-gray-200'}`}></div>
                       ))}
                     </div>
                   </div>

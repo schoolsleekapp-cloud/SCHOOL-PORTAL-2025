@@ -59,11 +59,12 @@ export interface ResultData {
   attendance: Attendance;
   affective: Trait[];
   psychomotor: Trait[];
+  cognitive: Trait[]; // Added Cognitive Domain
   createdAt?: string;
   updatedAt?: string;
   userId?: string;
   searchName?: string;
-  parentPhone?: string; // Added field for WhatsApp sharing
+  parentPhone?: string;
 }
 
 export interface SchoolData {

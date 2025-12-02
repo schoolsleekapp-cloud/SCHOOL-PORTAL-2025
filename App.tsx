@@ -4,7 +4,7 @@ import {
   School, FileText, Search, ShieldAlert, Edit, Users, Building2, 
   Database, Plus, Trash2, Trophy, Activity, 
   Sparkles, Loader2, Eye, ArrowLeft, RefreshCw, KeyRound, CheckCircle, Palette, Phone, Mail, MapPin, Clock, Star, UserCog,
-  Upload, QrCode, GraduationCap, Lock, House, LayoutDashboard, UserCheck, CreditCard, LogIn, LogOut, CalendarCheck, Calendar, ChevronLeft, ChevronRight, FileDown, Laptop2
+  Upload, QrCode, GraduationCap, Lock, House, LayoutDashboard, UserCheck, CreditCard, LogIn, LogOut, CalendarCheck, Calendar, ChevronLeft, ChevronRight, FileDown, Laptop2, BrainCircuit, X
 } from 'lucide-react';
 import { collection, addDoc, query, where, getDocs, doc, updateDoc, orderBy } from 'firebase/firestore';
 
@@ -18,7 +18,7 @@ import IdCardManager from './components/IdCardManager';
 import CbtPortal from './components/CbtPortal'; // Import CBT Portal
 import { ResultData, Subject, SchoolData, StudentData, ViewState, TeacherData, AttendanceLog } from './types';
 import { 
-  THEME_COLORS, AFFECTIVE_TRAITS, PSYCHOMOTOR_SKILLS, 
+  THEME_COLORS, AFFECTIVE_TRAITS, PSYCHOMOTOR_SKILLS, COGNITIVE_TRAITS,
   ALL_NIGERIAN_SUBJECTS, CLASS_LEVELS, TEACHER_SECRET_CODE, SUPER_ADMIN_KEY, APP_ID 
 } from './constants';
 
@@ -49,9 +49,10 @@ export default function App() {
     studentName: '', admissionNumber: '', classLevel: 'SSS 1', term: 'First Term', session: '2024/2025',
     year: new Date().getFullYear().toString(), position: '', teacherId: '', accessCode: '1234', 
     subjects: [], principalRemark: '', teacherRemark: '',
-    attendance: { present: 0, total: 60 }, // Default total to 60 days
+    attendance: { present: 0, total: 0 }, // Default total to 0 as requested
     affective: AFFECTIVE_TRAITS.map(t => ({ name: t, rating: 3 })),
-    psychomotor: PSYCHOMOTOR_SKILLS.map(t => ({ name: t, rating: 3 }))
+    psychomotor: PSYCHOMOTOR_SKILLS.map(t => ({ name: t, rating: 3 })),
+    cognitive: COGNITIVE_TRAITS.map(t => ({ name: t, rating: 3 }))
   };
 
   const [formData, setFormData] = useState<ResultData>(initialFormState);
@@ -144,7 +145,6 @@ export default function App() {
   };
 
   const handleConfirmAttendance = async () => {
-      // ... (Implementation remains the same)
       if (!pendingAttendance) return;
       if (!guardianInfo.name || !guardianInfo.phone) {
           setError("Guardian Name and Phone are required.");
@@ -237,7 +237,6 @@ export default function App() {
   };
 
   const handleScanSuccess = async (decodedText: string) => {
-    // ... (Existing logic for Scan Success)
     setShowScanner(false);
     try {
         const data = JSON.parse(decodedText);
@@ -382,9 +381,7 @@ export default function App() {
     }
   };
 
-  // ... (Other handlers like handlePublish, handleRegisterStudent etc. stay the same, keeping imports clean)
   const handlePublish = async () => {
-    // ... Logic remains same as previous App.tsx
     setLoading(true);
     try {
       const teacherCode = formData.teacherId.trim();
@@ -438,15 +435,65 @@ export default function App() {
     } finally { setLoading(false); }
   };
   
-  const handleAutoFillSchool = async () => { /* ... Same ... */ if (!formData.schoolId) return; setSuccessMsg("Checking School Database..."); try { const q = query(collection(db, 'School Data'), where("schoolId", "==", formData.schoolId.trim())); const querySnapshot = await getDocs(q); if (!querySnapshot.empty) { const schoolData = querySnapshot.docs[0].data() as SchoolData; setFormData(prev => ({ ...prev, schoolName: schoolData.schoolName || prev.schoolName, schoolLogo: schoolData.schoolLogo || prev.schoolLogo, schoolEmail: schoolData.schoolEmail || prev.schoolEmail, schoolPhone: schoolData.schoolPhone || prev.schoolPhone, schoolAddress: schoolData.schoolAddress || prev.schoolAddress, })); setSuccessMsg("School details loaded automatically!"); } else { setSuccessMsg(""); } } catch (err) { console.error(err); setSuccessMsg(""); } setTimeout(() => setSuccessMsg(''), 2000); };
-  const handleAutoFillStudent = async () => { /* ... Same ... */ if (!formData.schoolId || !formData.admissionNumber) return; setSuccessMsg("Checking Student Database..."); try { const q = query(collection(db, 'Student Data'), where("schoolId", "==", formData.schoolId.trim()), where("admissionNumber", "==", formData.admissionNumber.trim())); const querySnapshot = await getDocs(q); if (!querySnapshot.empty) { const studentData = querySnapshot.docs[0].data() as StudentData; setFormData(prev => ({ ...prev, studentName: studentData.studentName || prev.studentName, classLevel: studentData.classLevel || prev.classLevel })); setSuccessMsg("Student profile found and loaded!"); } else { setSuccessMsg(""); } } catch (err) { console.error(err); setSuccessMsg(""); } setTimeout(() => setSuccessMsg(''), 2000); };
-  const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => { /* ... Same ... */ const file = e.target.files?.[0]; if (file) { if (file.size > 500000) { setError("Image file is too large. Please use an image under 500KB."); return; } const reader = new FileReader(); reader.onloadend = () => { const result = reader.result as string; setFormData(prev => ({ ...prev, schoolLogo: result })); setRegData(prev => ({ ...prev, schoolLogo: result })); }; reader.readAsDataURL(file); } };
-  const handleSubjectChange = (index: number, field: keyof Subject, value: string | number) => { /* ... Same ... */ const newSubjects = [...formData.subjects]; const subject = { ...newSubjects[index] }; if (field === 'selectedSubject') { subject.selectedSubject = value as string; subject.name = value === 'Others' ? '' : value as string; } else if (field === 'name') { subject.name = value as string; } else { (subject as any)[field] = value; } if (['ca1', 'ca2', 'exam'].includes(field as string) || field === 'selectedSubject') { const safeTotal = (subject.ca1 === '' ? 0 : Number(subject.ca1)) + (subject.ca2 === '' ? 0 : Number(subject.ca2)) + (subject.exam === '' ? 0 : Number(subject.exam)); subject.total = safeTotal; const gradeInfo = calculateGrade(subject.total, formData.classLevel); subject.grade = gradeInfo.grade; subject.remark = gradeInfo.remark; } newSubjects[index] = subject; setFormData({ ...formData, subjects: newSubjects }); };
+  const handleAutoFillSchool = async () => { if (!formData.schoolId) return; setSuccessMsg("Checking School Database..."); try { const q = query(collection(db, 'School Data'), where("schoolId", "==", formData.schoolId.trim())); const querySnapshot = await getDocs(q); if (!querySnapshot.empty) { const schoolData = querySnapshot.docs[0].data() as SchoolData; setFormData(prev => ({ ...prev, schoolName: schoolData.schoolName || prev.schoolName, schoolLogo: schoolData.schoolLogo || prev.schoolLogo, schoolEmail: schoolData.schoolEmail || prev.schoolEmail, schoolPhone: schoolData.schoolPhone || prev.schoolPhone, schoolAddress: schoolData.schoolAddress || prev.schoolAddress, })); setSuccessMsg("School details loaded automatically!"); } else { setSuccessMsg(""); } } catch (err) { console.error(err); setSuccessMsg(""); } setTimeout(() => setSuccessMsg(''), 2000); };
+  
+  const handleAutoFillStudent = async () => {
+    if (!formData.schoolId || !formData.admissionNumber) return;
+    setSuccessMsg("Checking Student Database...");
+    
+    const inputVal = formData.admissionNumber.trim();
+    const schoolVal = formData.schoolId.trim();
+
+    try {
+      let q = query(collection(db, 'Student Data'), 
+          where("schoolId", "==", schoolVal), 
+          where("generatedId", "==", inputVal)
+      );
+      let querySnapshot = await getDocs(q);
+
+      if (querySnapshot.empty) {
+        q = query(collection(db, 'Student Data'), 
+            where("schoolId", "==", schoolVal), 
+            where("generatedId", "==", inputVal.toUpperCase())
+        );
+        querySnapshot = await getDocs(q);
+      }
+
+      if (querySnapshot.empty) {
+         q = query(collection(db, 'Student Data'), 
+            where("schoolId", "==", schoolVal), 
+            where("admissionNumber", "==", inputVal)
+        );
+        querySnapshot = await getDocs(q);
+      }
+
+      if (!querySnapshot.empty) {
+        const studentData = querySnapshot.docs[0].data() as StudentData;
+        setFormData(prev => ({
+          ...prev,
+          studentName: studentData.studentName || prev.studentName,
+          classLevel: studentData.classLevel || prev.classLevel,
+          parentPhone: studentData.parentPhone || prev.parentPhone,
+          admissionNumber: studentData.admissionNumber || prev.admissionNumber
+        }));
+        setSuccessMsg("Student profile found and loaded!");
+      } else {
+        setSuccessMsg("Student not found.");
+      }
+    } catch (err) {
+      console.error(err);
+      setSuccessMsg("Error checking DB.");
+    }
+    setTimeout(() => setSuccessMsg(''), 2000);
+  };
+
+  const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => { const file = e.target.files?.[0]; if (file) { if (file.size > 500000) { setError("Image file is too large. Please use an image under 500KB."); return; } const reader = new FileReader(); reader.onloadend = () => { const result = reader.result as string; setFormData(prev => ({ ...prev, schoolLogo: result })); setRegData(prev => ({ ...prev, schoolLogo: result })); }; reader.readAsDataURL(file); } };
+  const handleSubjectChange = (index: number, field: keyof Subject, value: string | number) => { const newSubjects = [...formData.subjects]; const subject = { ...newSubjects[index] }; if (field === 'selectedSubject') { subject.selectedSubject = value as string; subject.name = value === 'Others' ? '' : value as string; } else if (field === 'name') { subject.name = value as string; } else { (subject as any)[field] = value; } if (['ca1', 'ca2', 'exam'].includes(field as string) || field === 'selectedSubject') { const safeTotal = (subject.ca1 === '' ? 0 : Number(subject.ca1)) + (subject.ca2 === '' ? 0 : Number(subject.ca2)) + (subject.exam === '' ? 0 : Number(subject.exam)); subject.total = safeTotal; const gradeInfo = calculateGrade(subject.total, formData.classLevel); subject.grade = gradeInfo.grade; subject.remark = gradeInfo.remark; } newSubjects[index] = subject; setFormData({ ...formData, subjects: newSubjects }); };
   const handleAddSubject = () => { setFormData(prev => ({ ...prev, subjects: [ ...prev.subjects, { selectedSubject: '', name: '', ca1: '', ca2: '', exam: '', total: 0, average: 0, grade: '', remark: '' } ] })); };
   const handleRemoveSubject = (index: number) => { const newSubjects = [...formData.subjects]; newSubjects.splice(index, 1); setFormData({ ...formData, subjects: newSubjects }); };
-  const loadPresetSubjects = () => { /* ... Same ... */ let subjectsToLoad: string[] = []; const lvl = formData.classLevel; if (lvl.startsWith("Nursery")) subjectsToLoad = ["Number Work", "Letter Work", "Health Habits", "Social Norms", "Rhymes", "Creative Arts"]; else if (lvl.startsWith("Basic")) subjectsToLoad = ["Mathematics", "English Language", "Basic Science & Technology", "Verbal Reasoning", "Quantitative Reasoning"]; else if (lvl.startsWith("JSS")) subjectsToLoad = ["Mathematics", "English Studies", "Basic Science", "Social Studies", "Civic Education"]; else subjectsToLoad = ["Mathematics", "English Language", "Biology", "Economics"]; const mapped = subjectsToLoad.map(name => ({ selectedSubject: name, name, ca1: '', ca2: '', exam: '', total: 0, average: 0, grade: 'F', remark: 'Fail' })); setFormData(prev => ({ ...prev, subjects: mapped })); };
-  const handleGenerateRemarks = async () => { /* ... Same ... */ if (formData.subjects.length === 0) { setError("Please add subjects and scores first."); return; } setLoading(true); setError(''); try { const remarks = await generateGeminiRemarks(formData.studentName, formData.subjects, formData.classLevel, formData.position, formData.affective); setFormData(prev => ({ ...prev, principalRemark: remarks.principalRemark, teacherRemark: remarks.teacherRemark })); setSuccessMsg("Remarks generated by AI!"); } catch (err) { setError("Failed to generate remarks."); } finally { setLoading(false); } };
-  const handleRegisterStudent = async () => { /* ... Same ... */ if (!regData.studentName || !regData.admissionNumber || !regData.schoolId) { setError("Name, Admission Number, and School ID are required."); return; } setLoading(true); setError(''); try { const q = query(collection(db, 'School Data'), where("schoolId", "==", regData.schoolId.trim())); const querySnapshot = await getDocs(q); if (querySnapshot.empty) { setError("School ID not found. Please register the school first."); return; } const schoolData = querySnapshot.docs[0].data() as SchoolData; const schoolName = schoolData.schoolName || ""; const schoolLogo = schoolData.schoolLogo || ""; const uniqueId = Math.random().toString(36).substring(2, 10).toUpperCase(); const studentPayload: StudentData = { studentName: regData.studentName || "", admissionNumber: regData.admissionNumber || "", schoolId: regData.schoolId || "", classLevel: regData.classLevel || "", gender: regData.gender || "Male", parentPhone: regData.parentPhone || "", generatedId: uniqueId, schoolName: schoolName, schoolLogo: schoolLogo, createdAt: new Date().toISOString(), userId: 'anonymous' }; await addDoc(collection(db, 'Student Data'), studentPayload); setGeneratedStudent(studentPayload); setSuccessMsg("Student Registered Successfully!"); setShowIdCard(true); } catch(err: any) { console.error("Student Registration Error:", err); setError("Failed to register student."); } finally { setLoading(false); } };
+  const loadPresetSubjects = () => { let subjectsToLoad: string[] = []; const lvl = formData.classLevel; if (lvl.startsWith("Nursery")) subjectsToLoad = ["Number Work", "Letter Work", "Health Habits", "Social Norms", "Rhymes", "Creative Arts"]; else if (lvl.startsWith("Basic")) subjectsToLoad = ["Mathematics", "English Language", "Basic Science & Technology", "Verbal Reasoning", "Quantitative Reasoning"]; else if (lvl.startsWith("JSS")) subjectsToLoad = ["Mathematics", "English Studies", "Basic Science", "Social Studies", "Civic Education"]; else subjectsToLoad = ["Mathematics", "English Language", "Biology", "Economics"]; const mapped = subjectsToLoad.map(name => ({ selectedSubject: name, name, ca1: '', ca2: '', exam: '', total: 0, average: 0, grade: 'F', remark: 'Fail' })); setFormData(prev => ({ ...prev, subjects: mapped })); };
+  const handleGenerateRemarks = async () => { if (formData.subjects.length === 0) { setError("Please add subjects and scores first."); return; } setLoading(true); setError(''); try { const remarks = await generateGeminiRemarks(formData.studentName, formData.subjects, formData.classLevel, formData.position, formData.affective); setFormData(prev => ({ ...prev, principalRemark: remarks.principalRemark, teacherRemark: remarks.teacherRemark })); setSuccessMsg("Remarks generated by AI!"); } catch (err) { setError("Failed to generate remarks."); } finally { setLoading(false); } };
+  const handleRegisterStudent = async () => { if (!regData.studentName || !regData.admissionNumber || !regData.schoolId) { setError("Name, Admission Number, and School ID are required."); return; } setLoading(true); setError(''); try { const q = query(collection(db, 'School Data'), where("schoolId", "==", regData.schoolId.trim())); const querySnapshot = await getDocs(q); if (querySnapshot.empty) { setError("School ID not found. Please register the school first."); return; } const schoolData = querySnapshot.docs[0].data() as SchoolData; const schoolName = schoolData.schoolName || ""; const schoolLogo = schoolData.schoolLogo || ""; const uniqueId = Math.random().toString(36).substring(2, 10).toUpperCase(); const studentPayload: StudentData = { studentName: regData.studentName || "", admissionNumber: regData.admissionNumber || "", schoolId: regData.schoolId || "", classLevel: regData.classLevel || "", gender: regData.gender || "Male", parentPhone: regData.parentPhone || "", generatedId: uniqueId, schoolName: schoolName, schoolLogo: schoolLogo, createdAt: new Date().toISOString(), userId: 'anonymous' }; await addDoc(collection(db, 'Student Data'), studentPayload); setGeneratedStudent(studentPayload); setSuccessMsg("Student Registered Successfully!"); setShowIdCard(true); } catch(err: any) { console.error("Student Registration Error:", err); setError("Failed to register student."); } finally { setLoading(false); } };
   const handleRegisterTeacher = async () => { 
       if (!regData.teacherName || !regData.schoolId || !regData.email) { 
           setError("Name, School ID and Email are required."); 
@@ -468,8 +515,8 @@ export default function App() {
               generatedId: teacherId, 
               phoneNumber: regData.phoneNumber || "", 
               email: regData.email || "", 
-              schoolName: schoolData.schoolName || "", // Ensure not undefined
-              schoolLogo: schoolData.schoolLogo || "", // Ensure not undefined
+              schoolName: schoolData.schoolName || "", 
+              schoolLogo: schoolData.schoolLogo || "", 
               createdAt: new Date().toISOString(), 
               userId: 'anonymous' 
           }; 
@@ -484,7 +531,7 @@ export default function App() {
           setLoading(false); 
       } 
   };
-  const handleRegisterSchool = async () => { /* ... Same ... */ if (!regData.schoolName || !regData.schoolId || !regData.schoolCode) { setError("School Name, ID, and Secret Code are required."); return; } setLoading(true); try { await addDoc(collection(db, 'School Data'), { ...regData, createdAt: new Date().toISOString(), userId: 'anonymous' }); setSuccessMsg("School Registered Successfully!"); setTimeout(() => { setSuccessMsg(''); setRegData({}); }, 2000); } catch(err: any) { console.error("School Registration Error:", err); setError(`Failed to register school: ${err.message || 'Network Error'}`); } finally { setLoading(false); } };
+  const handleRegisterSchool = async () => { if (!regData.schoolName || !regData.schoolId || !regData.schoolCode) { setError("School Name, ID, and Secret Code are required."); return; } setLoading(true); try { await addDoc(collection(db, 'School Data'), { ...regData, createdAt: new Date().toISOString(), userId: 'anonymous' }); setSuccessMsg("School Registered Successfully!"); setTimeout(() => { setSuccessMsg(''); setRegData({}); }, 2000); } catch(err: any) { console.error("School Registration Error:", err); setError(`Failed to register school: ${err.message || 'Network Error'}`); } finally { setLoading(false); } };
   const handleCheckResult = async () => {
     if (!searchQuery.schoolId || !searchQuery.studentId) {
         setError("School ID and Student ID are required.");
@@ -512,10 +559,42 @@ export default function App() {
     }
   };
 
-  const handleAdminLookup = async () => { /* ... Same ... */ if (!adminQuery.schoolId || !adminQuery.studentId || !adminQuery.teacherCode) { setError("All fields are required."); return; } setLoading(true); setError(''); try { const q = query(collection(db, 'Result Data'), where("schoolId", "==", adminQuery.schoolId.trim()), where("admissionNumber", "==", adminQuery.studentId.trim())); const querySnapshot = await getDocs(q); if (querySnapshot.empty) { setError("No result found."); } else { const docSnap = querySnapshot.docs[0]; const data = docSnap.data() as ResultData; let isAuthorized = false; if (adminQuery.teacherCode === TEACHER_SECRET_CODE) isAuthorized = true; else if (data.teacherId === adminQuery.teacherCode) isAuthorized = true; if (!isAuthorized) { setError("Access Denied: Teacher ID does not match the record owner."); setLoading(false); return; } const enhancedSubjects = (data.subjects || []).map(s => ({ ...s, ca1: s.ca1 === undefined ? '' : s.ca1, ca2: s.ca2 === undefined ? '' : s.ca2, exam: s.exam === undefined ? '' : s.exam, average: s.average || 0, selectedSubject: ALL_NIGERIAN_SUBJECTS.includes(s.name) ? s.name : 'Others' })); setFormData({ ...data, subjects: enhancedSubjects, attendance: data.attendance || { present: 0, total: 60 }, affective: data.affective || AFFECTIVE_TRAITS.map(t => ({ name: t, rating: 3 })), psychomotor: data.psychomotor || PSYCHOMOTOR_SKILLS.map(t => ({ name: t, rating: 3 })) }); setEditDocId(docSnap.id); setIsEditing(true); setSuccessMsg("Result verified! Entering Edit Mode..."); setTimeout(() => { setView('create'); setSuccessMsg(''); }, 1500); } } catch (err: any) { setError("Error looking up result."); } finally { setLoading(false); } };
-  const handleSuperAdminAccess = async () => { /* ... Same ... */ if (superAdminKey !== SUPER_ADMIN_KEY) { setError("Invalid Access Credentials."); return; } setLoading(true); setError(''); try { const [res, sch, stu, tch] = await Promise.all([ getDocs(collection(db, 'Result Data')), getDocs(collection(db, 'School Data')), getDocs(collection(db, 'Student Data')), getDocs(collection(db, 'Teacher Data')) ]); setAllResults(res.docs.map(d => d.data() as ResultData)); setAllSchools(sch.docs.map(d => d.data() as SchoolData)); setAllStudents(stu.docs.map(d => d.data() as StudentData)); setAllTeachers(tch.docs.map(d => d.data() as TeacherData)); setView('super-admin-view'); setAdminTab('overview'); } catch(err: any) { console.error(err); setError("Failed to fetch database. Check internet connection."); } finally { setLoading(false); } };
-  const getDaysInMonth = (date: Date) => { /* ... Same ... */ const year = date.getFullYear(); const month = date.getMonth(); const days = new Date(year, month + 1, 0).getDate(); return Array.from({ length: days }, (_, i) => { const d = new Date(year, month, i + 1); return { date: d, iso: d.toISOString().split('T')[0], dayNum: i + 1, isWeekend: d.getDay() === 0 || d.getDay() === 6 }; }); };
-  const renderAttendanceView = () => { /* ... Same as provided in context, just ensuring it's wired up */ return ( <div className="max-w-2xl mx-auto bg-white p-8 rounded-2xl shadow-xl animate-slide-up text-center"> <h2 className="text-3xl font-bold text-gray-800 mb-6 flex items-center justify-center gap-2"><CalendarCheck className="text-purple-600" /> Class Attendance</h2> <div className="mb-8"> <p className="text-gray-500 mb-4">Select an action below.</p> <div className="grid grid-cols-1 md:grid-cols-3 gap-4"> <button onClick={() => { setScannerContext('attendance_in'); setShowScanner(true); setError(''); setSuccessMsg(''); setAttendanceStatus(null); setAttendanceReport(null); setSelectedDateLog(null); }} className="flex flex-col items-center justify-center p-5 bg-green-50 border-2 border-green-200 rounded-2xl hover:bg-green-100 hover:border-green-500 transition-all group"> <LogIn size={32} className="text-green-600 mb-1 group-hover:scale-110 transition-transform" /> <span className="text-lg font-bold text-green-700">Clock In</span> </button> <button onClick={() => { setScannerContext('attendance_out'); setShowScanner(true); setError(''); setSuccessMsg(''); setAttendanceStatus(null); setAttendanceReport(null); setSelectedDateLog(null); }} className="flex flex-col items-center justify-center p-5 bg-red-50 border-2 border-red-200 rounded-2xl hover:bg-red-100 hover:border-red-500 transition-all group"> <LogOut size={32} className="text-red-600 mb-1 group-hover:scale-110 transition-transform" /> <span className="text-lg font-bold text-red-700">Clock Out</span> </button> <button onClick={() => { setScannerContext('check_attendance'); setShowScanner(true); setError(''); setSuccessMsg(''); setAttendanceStatus(null); setAttendanceReport(null); setSelectedDateLog(null); }} className="flex flex-col items-center justify-center p-5 bg-blue-50 border-2 border-blue-200 rounded-2xl hover:bg-blue-100 hover:border-blue-500 transition-all group"> <Calendar size={32} className="text-blue-600 mb-1 group-hover:scale-110 transition-transform" /> <span className="text-lg font-bold text-blue-700">Check Report</span> </button> </div> </div> {/* Status display and calendar logic omitted for brevity as it's identical to provided context */} {attendanceStatus && (<div className={`p-6 rounded-xl border-2 animate-fade-in ${attendanceStatus.type === 'in' ? 'bg-green-50 border-green-200 text-green-800' : 'bg-red-50 border-red-200 text-red-800'}`}><div className="text-5xl mb-2">{attendanceStatus.type === 'in' ? '👋' : '🏠'}</div><h3 className="text-2xl font-bold">{attendanceStatus.name}</h3><p className="text-lg font-medium">{attendanceStatus.type === 'in' ? 'Clocked IN' : 'Clocked OUT'} at <span className="font-mono font-bold bg-white/50 px-2 rounded">{attendanceStatus.time}</span></p></div>)} {attendanceReport && ( <div className="mt-8 border-t pt-8 animate-fade-in"> {/* Calendar UI */} <div className="bg-gray-50 p-4 rounded-xl mb-6 flex flex-wrap gap-4 items-end justify-center border border-gray-100"> <div> <label className="text-xs font-bold text-gray-500 block mb-1">Start Date</label> <input type="date" value={reportStartDate} onChange={e => setReportStartDate(e.target.value)} className="p-2 border rounded text-sm w-36 outline-none focus:ring-1 focus:ring-purple-500 bg-white"/> </div> <div> <label className="text-xs font-bold text-gray-500 block mb-1">End Date</label> <input type="date" value={reportEndDate} onChange={e => setReportEndDate(e.target.value)} className="p-2 border rounded text-sm w-36 outline-none focus:ring-1 focus:ring-purple-500 bg-white"/> </div> <button onClick={handleDownloadAttendanceReport} className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 h-[38px] transition shadow-md"> <FileDown size={18}/> Download PDF </button> </div> <div className="grid grid-cols-7 gap-1 mb-2 text-xs font-bold text-gray-400"><div>Sun</div><div>Mon</div><div>Tue</div><div>Wed</div><div>Thu</div><div>Fri</div><div>Sat</div></div> <div className="grid grid-cols-7 gap-1">{/* Simplified Calendar Rendering */} {getDaysInMonth(reportMonth).map((d) => { const log = attendanceReport.logs.find(log => log.date === d.iso); const isLogged = !!log; return (<div key={d.dayNum} onClick={() => { if(isLogged) setSelectedDateLog(log || null); }} className={`aspect-square flex items-center justify-center rounded-lg text-sm font-bold relative group ${isLogged ? 'bg-green-500 text-white cursor-pointer' : 'bg-gray-50 text-gray-400'}`}>{d.dayNum}</div>); })} </div> </div> )} {selectedDateLog && ( <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4 animate-fade-in" onClick={() => setSelectedDateLog(null)}> <div className="bg-white p-6 rounded-2xl shadow-2xl max-w-sm w-full m-4 relative" onClick={e => e.stopPropagation()}> <button onClick={() => setSelectedDateLog(null)} className="absolute top-4 right-4 text-gray-400 hover:text-gray-600">✕</button> <h3 className="font-bold text-xl text-gray-800 mb-1">Attendance Details</h3> <p className="text-sm text-gray-500 mb-6 font-medium">{selectedDateLog.date}</p> <div className="space-y-4"><div className="bg-green-50 p-4 rounded-xl border border-green-100"><p className="text-2xl font-mono font-bold text-green-900 mb-2">{selectedDateLog.clockInTime || '---'}</p><div className="text-sm text-green-800 bg-white/60 p-2 rounded-lg"><div className="flex gap-1 mb-1"><span className="font-semibold text-green-900 w-16">Guardian:</span> <span>{selectedDateLog.dropOffGuardian || 'N/A'}</span></div></div></div><div className="bg-red-50 p-4 rounded-xl border border-red-100"><p className="text-2xl font-mono font-bold text-red-900 mb-2">{selectedDateLog.clockOutTime || '---'}</p><div className="text-sm text-red-800 bg-white/60 p-2 rounded-lg"><div className="flex gap-1 mb-1"><span className="font-semibold text-red-900 w-16">Guardian:</span> <span>{selectedDateLog.pickUpGuardian || 'N/A'}</span></div></div></div></div> </div> </div> )} <button onClick={() => setView('home')} className="mt-8 text-gray-500 hover:text-gray-800 font-medium">Back to Home</button> </div> ); };
+  const handleAdminLookup = async () => { 
+      if (!adminQuery.schoolId || !adminQuery.studentId || !adminQuery.teacherCode) { setError("All fields are required."); return; } 
+      setLoading(true); setError(''); 
+      try { 
+          const q = query(collection(db, 'Result Data'), where("schoolId", "==", adminQuery.schoolId.trim()), where("admissionNumber", "==", adminQuery.studentId.trim())); 
+          const querySnapshot = await getDocs(q); 
+          if (querySnapshot.empty) { setError("No result found."); } 
+          else { 
+              const docSnap = querySnapshot.docs[0]; 
+              const data = docSnap.data() as ResultData; 
+              let isAuthorized = false; 
+              if (adminQuery.teacherCode === TEACHER_SECRET_CODE) isAuthorized = true; 
+              else if (data.teacherId === adminQuery.teacherCode) isAuthorized = true; 
+              if (!isAuthorized) { setError("Access Denied: Teacher ID does not match the record owner."); setLoading(false); return; } 
+              
+              const enhancedSubjects = (data.subjects || []).map(s => ({ ...s, ca1: s.ca1 === undefined ? '' : s.ca1, ca2: s.ca2 === undefined ? '' : s.ca2, exam: s.exam === undefined ? '' : s.exam, average: s.average || 0, selectedSubject: ALL_NIGERIAN_SUBJECTS.includes(s.name) ? s.name : 'Others' })); 
+              
+              setFormData({ 
+                  ...data, 
+                  subjects: enhancedSubjects, 
+                  attendance: data.attendance || { present: 0, total: 0 }, 
+                  affective: data.affective || AFFECTIVE_TRAITS.map(t => ({ name: t, rating: 3 })), 
+                  psychomotor: data.psychomotor || PSYCHOMOTOR_SKILLS.map(t => ({ name: t, rating: 3 })),
+                  cognitive: data.cognitive || COGNITIVE_TRAITS.map(t => ({ name: t, rating: 3 })) // Populate Cognitive from DB or default
+              }); 
+              
+              setEditDocId(docSnap.id); 
+              setIsEditing(true); 
+              setSuccessMsg("Result verified! Entering Edit Mode..."); 
+              setTimeout(() => { setView('create'); setSuccessMsg(''); }, 1500); 
+          } 
+      } catch (err: any) { setError("Error looking up result."); } finally { setLoading(false); } 
+    };
+  const handleSuperAdminAccess = async () => { if (superAdminKey !== SUPER_ADMIN_KEY) { setError("Invalid Access Credentials."); return; } setLoading(true); setError(''); try { const [res, sch, stu, tch] = await Promise.all([ getDocs(collection(db, 'Result Data')), getDocs(collection(db, 'School Data')), getDocs(collection(db, 'Student Data')), getDocs(collection(db, 'Teacher Data')) ]); setAllResults(res.docs.map(d => d.data() as ResultData)); setAllSchools(sch.docs.map(d => d.data() as SchoolData)); setAllStudents(stu.docs.map(d => d.data() as StudentData)); setAllTeachers(tch.docs.map(d => d.data() as TeacherData)); setView('super-admin-view'); setAdminTab('overview'); } catch(err: any) { console.error(err); setError("Failed to fetch database. Check internet connection."); } finally { setLoading(false); } };
+  const getDaysInMonth = (date: Date) => { const year = date.getFullYear(); const month = date.getMonth(); const days = new Date(year, month + 1, 0).getDate(); return Array.from({ length: days }, (_, i) => { const d = new Date(year, month, i + 1); return { date: d, iso: d.toISOString().split('T')[0], dayNum: i + 1, isWeekend: d.getDay() === 0 || d.getDay() === 6 }; }); };
+  const renderAttendanceView = () => { return ( <div className="max-w-2xl mx-auto bg-white p-8 rounded-2xl shadow-xl animate-slide-up text-center"> <h2 className="text-3xl font-bold text-gray-800 mb-6 flex items-center justify-center gap-2"><CalendarCheck className="text-purple-600" /> Class Attendance</h2> <div className="mb-8"> <p className="text-gray-500 mb-4">Select an action below.</p> <div className="grid grid-cols-1 md:grid-cols-3 gap-4"> <button onClick={() => { setScannerContext('attendance_in'); setShowScanner(true); setError(''); setSuccessMsg(''); setAttendanceStatus(null); setAttendanceReport(null); setSelectedDateLog(null); }} className="flex flex-col items-center justify-center p-5 bg-green-50 border-2 border-green-200 rounded-2xl hover:bg-green-100 hover:border-green-500 transition-all group"> <LogIn size={32} className="text-green-600 mb-1 group-hover:scale-110 transition-transform" /> <span className="text-lg font-bold text-green-700">Clock In</span> </button> <button onClick={() => { setScannerContext('attendance_out'); setShowScanner(true); setError(''); setSuccessMsg(''); setAttendanceStatus(null); setAttendanceReport(null); setSelectedDateLog(null); }} className="flex flex-col items-center justify-center p-5 bg-red-50 border-2 border-red-200 rounded-2xl hover:bg-red-100 hover:border-red-500 transition-all group"> <LogOut size={32} className="text-red-600 mb-1 group-hover:scale-110 transition-transform" /> <span className="text-lg font-bold text-red-700">Clock Out</span> </button> <button onClick={() => { setScannerContext('check_attendance'); setShowScanner(true); setError(''); setSuccessMsg(''); setAttendanceStatus(null); setAttendanceReport(null); setSelectedDateLog(null); }} className="flex flex-col items-center justify-center p-5 bg-blue-50 border-2 border-blue-200 rounded-2xl hover:bg-blue-100 hover:border-blue-500 transition-all group"> <Calendar size={32} className="text-blue-600 mb-1 group-hover:scale-110 transition-transform" /> <span className="text-lg font-bold text-blue-700">Check Report</span> </button> </div> </div> {attendanceStatus && (<div className={`p-6 rounded-xl border-2 animate-fade-in ${attendanceStatus.type === 'in' ? 'bg-green-50 border-green-200 text-green-800' : 'bg-red-50 border-red-200 text-red-800'}`}><div className="text-5xl mb-2">{attendanceStatus.type === 'in' ? '👋' : '🏠'}</div><h3 className="text-2xl font-bold">{attendanceStatus.name}</h3><p className="text-lg font-medium">{attendanceStatus.type === 'in' ? 'Clocked IN' : 'Clocked OUT'} at <span className="font-mono font-bold bg-white/50 px-2 rounded">{attendanceStatus.time}</span></p></div>)} {attendanceReport && ( <div className="mt-8 border-t pt-8 animate-fade-in"> <div className="bg-gray-50 p-4 rounded-xl mb-6 flex flex-wrap gap-4 items-end justify-center border border-gray-100"> <div> <label className="text-xs font-bold text-gray-500 block mb-1">Start Date</label> <input type="date" value={reportStartDate} onChange={e => setReportStartDate(e.target.value)} className="p-2 border rounded text-sm w-36 outline-none focus:ring-1 focus:ring-purple-500 bg-white"/> </div> <div> <label className="text-xs font-bold text-gray-500 block mb-1">End Date</label> <input type="date" value={reportEndDate} onChange={e => setReportEndDate(e.target.value)} className="p-2 border rounded text-sm w-36 outline-none focus:ring-1 focus:ring-purple-500 bg-white"/> </div> <button onClick={handleDownloadAttendanceReport} className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 h-[38px] transition shadow-md"> <FileDown size={18}/> Download PDF </button> </div> <div className="grid grid-cols-7 gap-1 mb-2 text-xs font-bold text-gray-400"><div>Sun</div><div>Mon</div><div>Tue</div><div>Wed</div><div>Thu</div><div>Fri</div><div>Sat</div></div> <div className="grid grid-cols-7 gap-1"> {getDaysInMonth(reportMonth).map((d) => { const log = attendanceReport.logs.find(log => log.date === d.iso); const isLogged = !!log; return (<div key={d.dayNum} onClick={() => { if(isLogged) setSelectedDateLog(log || null); }} className={`aspect-square flex items-center justify-center rounded-lg text-sm font-bold relative group ${isLogged ? 'bg-green-500 text-white cursor-pointer' : 'bg-gray-50 text-gray-400'}`}>{d.dayNum}</div>); })} </div> </div> )} {selectedDateLog && ( <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4 animate-fade-in" onClick={() => setSelectedDateLog(null)}> <div className="bg-white p-6 rounded-2xl shadow-2xl max-w-sm w-full m-4 relative" onClick={e => e.stopPropagation()}> <button onClick={() => setSelectedDateLog(null)} className="absolute top-4 right-4 text-gray-400 hover:text-gray-600">✕</button> <h3 className="font-bold text-xl text-gray-800 mb-1">Attendance Details</h3> <p className="text-sm text-gray-500 mb-6 font-medium">{selectedDateLog.date}</p> <div className="space-y-4"><div className="bg-green-50 p-4 rounded-xl border border-green-100"><p className="text-2xl font-mono font-bold text-green-900 mb-2">{selectedDateLog.clockInTime || '---'}</p><div className="text-sm text-green-800 bg-white/60 p-2 rounded-lg"><div className="flex gap-1 mb-1"><span className="font-semibold text-green-900 w-16">Guardian:</span> <span>{selectedDateLog.dropOffGuardian || 'N/A'}</span></div></div></div><div className="bg-red-50 p-4 rounded-xl border border-red-100"><p className="text-2xl font-mono font-bold text-red-900 mb-2">{selectedDateLog.clockOutTime || '---'}</p><div className="text-sm text-red-800 bg-white/60 p-2 rounded-lg"><div className="flex gap-1 mb-1"><span className="font-semibold text-red-900 w-16">Guardian:</span> <span>{selectedDateLog.pickUpGuardian || 'N/A'}</span></div></div></div></div> </div> </div> )} <button onClick={() => setView('home')} className="mt-8 text-gray-500 hover:text-gray-800 font-medium">Back to Home</button> </div> ); };
   const renderSuperAdminView = () => ( <div className="max-w-6xl mx-auto space-y-6 animate-fade-in"> <div className="flex flex-col md:flex-row justify-between items-center bg-white p-6 rounded-2xl shadow-sm border-b gap-4"> <h2 className="text-2xl font-bold text-gray-800 flex items-center gap-2"><Database className="text-red-600" /> Master Database</h2> <div className="flex gap-2 flex-wrap"> <select value={adminTab} onChange={(e) => setAdminTab(e.target.value as any)} className="p-2 border rounded-lg bg-gray-50 text-sm font-bold outline-none focus:ring-2 focus:ring-purple-500 cursor-pointer"> <option value="overview">Overview</option> <option value="schools">Schools</option> <option value="students">Students</option> <option value="teachers">Teachers</option> <option value="results">Results</option> <option value="id_cards">ID Cards</option> </select> <button onClick={() => setView('admin-dashboard')} className="bg-gray-200 hover:bg-gray-300 text-gray-700 px-4 py-2 rounded-lg font-bold text-sm">Close</button> </div> </div> <div className="bg-white p-6 rounded-2xl shadow-xl min-h-[500px]"> {adminTab === 'overview' && (<div className="grid grid-cols-2 md:grid-cols-4 gap-4"><div className="p-4 bg-orange-50 border border-orange-100 rounded-xl text-center"><h3 className="text-3xl font-bold text-orange-600">{allSchools.length}</h3><p className="text-sm text-gray-500 uppercase font-bold">Schools</p></div></div>)} {adminTab === 'schools' && (<div className="overflow-x-auto"><table className="w-full text-sm text-left border-collapse"><thead className="bg-gray-100 text-gray-600 uppercase text-xs"><tr><th className="p-3 border-b">School Name</th><th className="p-3 border-b">ID</th></tr></thead><tbody className="divide-y">{allSchools.map((s, i) => (<tr key={i} className="hover:bg-gray-50"><td className="p-3 font-bold">{s.schoolName}</td><td className="p-3 font-mono text-xs">{s.schoolId}</td></tr>))}</tbody></table></div>)} {adminTab === 'students' && (<div className="space-y-4"><div className="relative"><Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} /><input type="text" placeholder="Search students..." className="w-full pl-10 pr-4 py-2 border rounded-lg outline-none focus:ring-2 focus:ring-blue-500" onChange={(e) => setMasterSearch(e.target.value)} /></div><div className="overflow-x-auto max-h-[500px]"><table className="w-full text-sm text-left border-collapse"><thead className="bg-gray-100 text-gray-600 uppercase text-xs sticky top-0"><tr><th className="p-3 border-b">Name</th><th className="p-3 border-b">Adm No</th></tr></thead><tbody className="divide-y">{allStudents.filter(s => s.studentName.toLowerCase().includes(masterSearch.toLowerCase())).map((s, i) => (<tr key={i} className="hover:bg-gray-50"><td className="p-3 font-bold">{s.studentName}</td><td className="p-3">{s.admissionNumber}</td></tr>))}</tbody></table></div></div>)} {adminTab === 'teachers' && (<div className="overflow-x-auto"><table className="w-full text-sm text-left border-collapse"><thead className="bg-gray-100 text-gray-600 uppercase text-xs"><tr><th className="p-3 border-b">Name</th><th className="p-3 border-b">ID</th></tr></thead><tbody className="divide-y">{allTeachers.map((t, i) => (<tr key={i} className="hover:bg-gray-50"><td className="p-3 font-bold">{t.teacherName}</td><td className="p-3 font-mono text-xs">{t.generatedId}</td></tr>))}</tbody></table></div>)} {adminTab === 'id_cards' && (<IdCardManager students={allStudents} teachers={allTeachers} />)} {adminTab === 'results' && (<div className="text-center text-gray-500 py-12 bg-gray-50 rounded-xl border border-dashed border-gray-300"><Database size={48} className="mx-auto text-gray-300 mb-2" /><p>Results are optimized for search-based access.</p></div>)} </div> </div> );
 
   return (
@@ -658,7 +737,7 @@ export default function App() {
 
               {/* Student Info */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div className="space-y-2"><label className="text-sm font-semibold text-gray-700">Admission No (Auto-Fill)</label><input type="text" value={formData.admissionNumber} onChange={(e) => setFormData({...formData, admissionNumber: e.target.value})} onBlur={handleAutoFillStudent} className="w-full p-3 border rounded-lg bg-yellow-50 border-yellow-200 outline-none" placeholder="Enter Adm No & click away"/></div>
+                <div className="space-y-2"><label className="text-sm font-semibold text-gray-700">Student ID</label><input type="text" value={formData.admissionNumber} onChange={(e) => setFormData({...formData, admissionNumber: e.target.value})} onBlur={handleAutoFillStudent} className="w-full p-3 border rounded-lg bg-yellow-50 border-yellow-200 outline-none" placeholder="Enter Student ID & click away"/></div>
                 <div className="space-y-2"><label className="text-sm font-semibold text-gray-700">Student Name</label><input type="text" value={formData.studentName} onChange={(e) => setFormData({...formData, studentName: e.target.value})} className="w-full p-3 border rounded-lg outline-none"/></div>
                 <div className="space-y-2"><label className="text-sm font-semibold text-gray-700">Class Level</label><select value={formData.classLevel} onChange={(e) => setFormData({...formData, classLevel: e.target.value})} className="w-full p-3 border rounded-lg outline-none bg-white">{CLASS_LEVELS.map(c => <option key={c} value={c}>{c}</option>)}</select></div>
                 <div className="grid grid-cols-2 gap-4">
@@ -675,7 +754,10 @@ export default function App() {
                 <div className="flex justify-between items-center mb-4 flex-wrap gap-4">
                   <h3 className="text-xl font-bold text-gray-800">Academic Performance</h3>
                   <div className="flex items-center gap-2 bg-yellow-50 px-3 py-1 rounded border border-yellow-200"><Trophy size={16} className="text-yellow-600" /><input type="text" placeholder="Position" value={formData.position} onChange={(e) => setFormData({...formData, position: e.target.value})} className="bg-transparent outline-none w-32 text-sm font-semibold text-yellow-800 placeholder-yellow-400"/></div>
-                  <div className="space-x-2"><button onClick={loadPresetSubjects} className="px-4 py-2 text-sm text-purple-700 bg-purple-50 rounded-lg hover:bg-purple-100">Quick Load</button><button onClick={handleAddSubject} className="px-4 py-2 text-sm bg-gray-800 text-white rounded-lg hover:bg-gray-700 flex items-center gap-1"><Plus size={16} /> Add</button></div>
+                  <div className="flex gap-2">
+                    <button onClick={loadPresetSubjects} className="px-4 py-2 text-sm text-purple-700 bg-purple-50 rounded-lg hover:bg-purple-100">Quick Load</button>
+                    <button onClick={handleAddSubject} className="px-4 py-2 text-sm bg-gray-800 text-white rounded-lg hover:bg-gray-700 flex items-center gap-1"><Plus size={16} /> Add</button>
+                  </div>
                 </div>
                 <div className="overflow-x-auto rounded-lg border border-gray-200">
                   <table className="w-full text-sm text-left">
@@ -683,7 +765,38 @@ export default function App() {
                     <tbody className="divide-y divide-gray-100">
                       {formData.subjects.map((sub, idx) => (
                         <tr key={idx} className="hover:bg-gray-50 transition-colors">
-                          <td className="px-4 py-2"><div className="space-y-1"><select value={sub.selectedSubject} onChange={(e) => handleSubjectChange(idx, 'selectedSubject', e.target.value)} className="w-full bg-transparent p-2 border-b border-transparent focus:border-purple-500 outline-none cursor-pointer"><option value="" disabled>Select Subject</option>{ALL_NIGERIAN_SUBJECTS.map(subject => (<option key={subject} value={subject}>{subject}</option>))}</select>{sub.selectedSubject === 'Others' && (<input type="text" value={sub.name} onChange={(e) => handleSubjectChange(idx, 'name', e.target.value)} placeholder="Type Subject Name..." className="w-full text-xs p-2 bg-yellow-50 border border-yellow-200 rounded outline-none" autoFocus/>)}</div></td>
+                          <td className="px-4 py-2">
+                            <div className="space-y-1">
+                              {sub.selectedSubject === 'Others' ? (
+                                <div className="flex items-center gap-2">
+                                  <input 
+                                    type="text" 
+                                    value={sub.name} 
+                                    onChange={(e) => handleSubjectChange(idx, 'name', e.target.value)} 
+                                    placeholder="Type Subject Name..." 
+                                    className="w-full text-sm p-2 bg-white border border-yellow-300 rounded outline-none focus:ring-2 focus:ring-yellow-400" 
+                                    autoFocus
+                                  />
+                                  <button 
+                                    onClick={() => handleSubjectChange(idx, 'selectedSubject', '')}
+                                    className="p-2 bg-gray-100 rounded-full hover:bg-red-100 text-gray-500 hover:text-red-500 transition"
+                                    title="Cancel Custom Subject"
+                                  >
+                                    <X size={14} />
+                                  </button>
+                                </div>
+                              ) : (
+                                <select 
+                                  value={sub.selectedSubject} 
+                                  onChange={(e) => handleSubjectChange(idx, 'selectedSubject', e.target.value)} 
+                                  className="w-full bg-transparent p-2 border-b border-transparent focus:border-purple-500 outline-none cursor-pointer"
+                                >
+                                  <option value="" disabled>Select Subject</option>
+                                  {ALL_NIGERIAN_SUBJECTS.map(subject => (<option key={subject} value={subject}>{subject}</option>))}
+                                </select>
+                              )}
+                            </div>
+                          </td>
                           <td className="px-2 py-2"><input type="number" value={sub.ca1} onChange={(e) => handleSubjectChange(idx, 'ca1', e.target.value)} className="w-full text-center bg-gray-50 rounded p-2 outline-none"/></td>
                           <td className="px-2 py-2"><input type="number" value={sub.ca2} onChange={(e) => handleSubjectChange(idx, 'ca2', e.target.value)} className="w-full text-center bg-gray-50 rounded p-2 outline-none"/></td>
                           <td className="px-2 py-2"><input type="number" value={sub.exam} onChange={(e) => handleSubjectChange(idx, 'exam', e.target.value)} className="w-full text-center bg-gray-50 rounded p-2 outline-none"/></td>
@@ -710,9 +823,10 @@ export default function App() {
                        </div>
                     </div>
                  </div>
-                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                     <div><h4 className="font-bold text-sm text-gray-600 mb-3 flex items-center gap-2"><Star size={14}/> Affective Domain (Rate 1-5)</h4><div className="bg-white rounded border p-4 grid grid-cols-1 gap-2 max-h-60 overflow-y-auto">{formData.affective.map((trait, i) => (<div key={i} className="flex items-center justify-between text-sm"><span>{trait.name}</span><div className="flex gap-1">{[1,2,3,4,5].map(val => (<button key={val} onClick={() => {const n=[...formData.affective]; n[i].rating=val; setFormData({...formData, affective: n});}} className={`w-6 h-6 rounded flex items-center justify-center text-xs ${trait.rating >= val ? 'bg-purple-600 text-white' : 'bg-gray-100 text-gray-400 hover:bg-gray-200'}`}>{val}</button>))}</div></div>))}</div></div>
                     <div><h4 className="font-bold text-sm text-gray-600 mb-3 flex items-center gap-2"><Activity size={14}/> Psychomotor Domain (Rate 1-5)</h4><div className="bg-white rounded border p-4 grid grid-cols-1 gap-2 max-h-60 overflow-y-auto">{formData.psychomotor.map((skill, i) => (<div key={i} className="flex items-center justify-between text-sm"><span>{skill.name}</span><div className="flex gap-1">{[1,2,3,4,5].map(val => (<button key={val} onClick={() => {const n=[...formData.psychomotor]; n[i].rating=val; setFormData({...formData, psychomotor: n});}} className={`w-6 h-6 rounded flex items-center justify-center text-xs ${skill.rating >= val ? 'bg-purple-600 text-white' : 'bg-gray-100 text-gray-400 hover:bg-gray-200'}`}>{val}</button>))}</div></div>))}</div></div>
+                    <div><h4 className="font-bold text-sm text-gray-600 mb-3 flex items-center gap-2"><BrainCircuit size={14}/> Cognitive Domain (Rate 1-5)</h4><div className="bg-white rounded border p-4 grid grid-cols-1 gap-2 max-h-60 overflow-y-auto">{formData.cognitive.map((trait, i) => (<div key={i} className="flex items-center justify-between text-sm"><span>{trait.name}</span><div className="flex gap-1">{[1,2,3,4,5].map(val => (<button key={val} onClick={() => {const n=[...formData.cognitive]; n[i].rating=val; setFormData({...formData, cognitive: n});}} className={`w-6 h-6 rounded flex items-center justify-center text-xs ${trait.rating >= val ? 'bg-purple-600 text-white' : 'bg-gray-100 text-gray-400 hover:bg-gray-200'}`}>{val}</button>))}</div></div>))}</div></div>
                  </div>
               </div>
 
@@ -791,7 +905,6 @@ export default function App() {
             </div>
           </div>
         )}
-
         {view === 'register-student' && (
            <div className="max-w-2xl mx-auto bg-white p-8 rounded-2xl shadow-xl animate-slide-up">
             <h2 className="text-2xl font-bold text-blue-800 mb-6 flex items-center gap-2"><Users /> Student Registration</h2>

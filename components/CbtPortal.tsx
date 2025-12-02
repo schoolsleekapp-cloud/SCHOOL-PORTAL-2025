@@ -3,7 +3,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { 
   Laptop2, QrCode, Upload, FileText, CheckCircle, Clock, 
   AlertCircle, ChevronRight, Save, User, School, Play, BrainCircuit, Loader2, KeyRound, Calculator, BookOpen, Layers, Type, AlignLeft,
-  FileDown, Trash2, Copy, Users, Printer, Eye, ClipboardList, Edit, X, PenTool, Square, Circle, Minus, Eraser, Image as ImageIcon
+  FileDown, Trash2, Copy, Users, Printer, Eye, ClipboardList, Edit, X, PenTool, Square, Circle, Minus, Eraser, Image as ImageIcon, Wand2
 } from 'lucide-react';
 import { 
   collection, addDoc, query, where, getDocs, updateDoc, doc, setDoc, orderBy 
@@ -93,7 +93,7 @@ const DrawingCanvas = ({ onSave, onClose, initialImage }: { onSave: (img: string
 
         let clientX, clientY;
         if ('touches' in e) {
-             // Prevent scrolling on mobile while drawing
+            // Prevent scrolling on mobile while drawing
             // e.preventDefault(); // Warning: Passive listener issue in React 18
             clientX = e.touches[0].clientX;
             clientY = e.touches[0].clientY;
@@ -176,7 +176,7 @@ const DrawingCanvas = ({ onSave, onClose, initialImage }: { onSave: (img: string
                         ref={canvasRef}
                         width={450}
                         height={300}
-                        className="bg-white cursor-crosshair max-w-full"
+                        className="bg-white cursor-crosshair max-w-full touch-none"
                         onMouseDown={startDrawing}
                         onMouseMove={draw}
                         onMouseUp={stopDrawing}
@@ -212,6 +212,9 @@ const CbtPortal: React.FC<CbtPortalProps> = ({ onBack }) => {
   const [teacher, setTeacher] = useState<TeacherData | null>(null);
   const [myAssessments, setMyAssessments] = useState<CbtAssessment[]>([]);
   const [viewingHistoryItem, setViewingHistoryItem] = useState<CbtAssessment | null>(null);
+  
+  // Editing State
+  const [editingId, setEditingId] = useState<string | null>(null);
 
   const [assessmentForm, setAssessmentForm] = useState({
     subject: '',
@@ -334,6 +337,89 @@ const CbtPortal: React.FC<CbtPortalProps> = ({ onBack }) => {
     } else {
         setAssessmentForm(prev => ({ ...prev, notes: prev.notes + symbol }));
     }
+  };
+
+  const handleManualExtract = () => {
+    if (!assessmentForm.notes) {
+        setError("Please paste text into the content box first.");
+        return;
+    }
+
+    const text = assessmentForm.notes;
+    const lines = text.split('\n');
+    const newQuestions: Question[] = [];
+    let currentQ: Question | null = null;
+    
+    // Regex for "1. ", "1) "
+    const questionStartRegex = /^(\d+)[\.)]\s+(.+)/;
+    // Regex for "a. ", "a) ", "A. "
+    const optionStartRegex = /^([a-eA-E])[\.)]\s+(.+)/; 
+    const optionParenRegex = /^\(([a-eA-E])\)\s+(.+)/; 
+
+    lines.forEach(line => {
+        const trimmed = line.trim();
+        if (!trimmed) return;
+
+        const qMatch = trimmed.match(questionStartRegex);
+        if (qMatch) {
+            if (currentQ) newQuestions.push(currentQ);
+            currentQ = {
+                id: Date.now() + Math.random(),
+                questionText: qMatch[2],
+                options: [],
+                correctAnswer: '',
+                section: assessmentForm.questionMode
+            };
+            return;
+        }
+
+        const optMatch = trimmed.match(optionStartRegex) || trimmed.match(optionParenRegex);
+        if (currentQ && optMatch) {
+            currentQ.options = currentQ.options || [];
+            currentQ.options.push(optMatch[2]);
+            return;
+        }
+
+        // Append text if not a new start (continuation)
+        if (currentQ) {
+            if (currentQ.options && currentQ.options.length > 0) {
+                 currentQ.options[currentQ.options.length - 1] += " " + trimmed;
+            } else {
+                 currentQ.questionText += " " + trimmed;
+            }
+        }
+    });
+
+    if (currentQ) newQuestions.push(currentQ);
+
+    if (newQuestions.length > 0) {
+        setAssessmentForm(prev => ({
+            ...prev,
+            generatedQuestions: [...prev.generatedQuestions, ...newQuestions]
+        }));
+        setSuccess(`Extracted ${newQuestions.length} questions from text.`);
+    } else {
+        setError("Could not auto-detect questions. Ensure format is '1. Question' and 'a. Option'.");
+    }
+  };
+
+  const handleEditAssessment = (assessment: CbtAssessment) => {
+    setAssessmentForm({
+        subject: assessment.subject,
+        selectedSubject: ALL_NIGERIAN_SUBJECTS.includes(assessment.subject) ? assessment.subject : 'Others',
+        classLevel: assessment.classLevel,
+        term: assessment.term,
+        type: assessment.type,
+        questionMode: assessment.questionMode || 'objective',
+        questionCount: assessment.questions.length,
+        instructions: assessment.instructions || '',
+        duration: assessment.durationMinutes,
+        notes: '', 
+        generatedQuestions: assessment.questions
+    });
+    setEditingId(assessment.id || null);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    setSuccess("Loaded assessment for editing.");
   };
 
   const handleUpdateQuestion = (idx: number, field: string, val: string, optIdx?: number) => {
@@ -504,27 +590,41 @@ const CbtPortal: React.FC<CbtPortalProps> = ({ onBack }) => {
     setLoading(true);
     
     try {
-      const examCode = Math.random().toString(36).substring(2, 8).toUpperCase();
-      const assessmentPayload: CbtAssessment = {
-        examCode,
+      // Base Payload
+      const payload: any = {
         schoolId: teacher.schoolId,
         teacherId: teacher.generatedId,
         subject: assessmentForm.subject,
         classLevel: assessmentForm.classLevel,
         term: assessmentForm.term,
-        session: new Date().getFullYear().toString(), // Simplified session
+        session: new Date().getFullYear().toString(),
         durationMinutes: assessmentForm.duration,
         type: assessmentForm.type,
         questionMode: assessmentForm.questionMode,
         instructions: assessmentForm.instructions,
         questions: assessmentForm.generatedQuestions,
-        createdAt: new Date().toISOString(),
-        status: 'active'
+        status: 'active',
+        updatedAt: new Date().toISOString()
       };
 
-      await addDoc(collection(db, 'CBT Assessments'), assessmentPayload);
-      setSuccess(`Assessment Created! EXAM CODE: ${examCode}`);
-      // Only reset notes/instructions, keep questions visible for a moment or give option to clear
+      if (editingId) {
+        // UPDATE existing document
+        const docRef = doc(db, 'CBT Assessments', editingId);
+        await updateDoc(docRef, payload);
+        
+        // Preserve original examCode for display
+        // Fetch to confirm or just show generic success
+        setSuccess("Assessment Updated Successfully!");
+        setEditingId(null);
+      } else {
+        // CREATE new document
+        const examCode = Math.random().toString(36).substring(2, 8).toUpperCase();
+        payload.examCode = examCode;
+        payload.createdAt = new Date().toISOString();
+        await addDoc(collection(db, 'CBT Assessments'), payload);
+        setSuccess(`Assessment Created! EXAM CODE: ${examCode}`);
+      }
+
       setAssessmentForm(prev => ({ ...prev, generatedQuestions: [], notes: '', instructions: '' })); 
     } catch (err) {
       setError("Failed to save assessment.");
@@ -608,6 +708,18 @@ const CbtPortal: React.FC<CbtPortalProps> = ({ onBack }) => {
     setLoading(true);
     setError('');
     try {
+      // Check if already submitted
+      const qLog = query(collection(db, 'Exam Logs'), 
+          where("examCode", "==", examCodeInput.trim()),
+          where("admissionNumber", "==", student.admissionNumber)
+      );
+      const logSnap = await getDocs(qLog);
+      if (!logSnap.empty) {
+          setError("You have already submitted this assessment.");
+          setLoading(false);
+          return;
+      }
+
       const q = query(collection(db, 'CBT Assessments'), where("examCode", "==", examCodeInput.trim()));
       const snap = await getDocs(q);
       
@@ -649,21 +761,26 @@ const CbtPortal: React.FC<CbtPortalProps> = ({ onBack }) => {
     setExamSubmitted(true);
     setLoading(true);
 
-    if (activeAssessment.questionMode === 'theory') {
-        setSuccess("Essay submitted successfully! Results will be pending teacher review.");
-        setLoading(false);
-        return;
-    }
-
-    // Calculate Score (Objective & Comprehension)
+    // Calculate Score (Objective & Comprehension only)
     let correctCount = 0;
+    let gradableQuestions = 0;
+
     activeAssessment.questions.forEach(q => {
-      if (answers[q.id] === q.correctAnswer) {
-        correctCount++;
+      // Only grade if options exist and correct answer matches one of them
+      if (q.options && q.options.length > 0 && q.correctAnswer) {
+          gradableQuestions++;
+          if (answers[q.id] === q.correctAnswer) {
+            correctCount++;
+          }
       }
     });
 
-    const percentage = (correctCount / activeAssessment.questions.length) * 100;
+    // If theory only, gradableQuestions is 0, score is 0/0 (pending).
+    // If mixed, score is based on gradable part.
+    let percentage = 0;
+    if (gradableQuestions > 0) {
+        percentage = (correctCount / gradableQuestions) * 100;
+    }
     
     // Scale score based on type (CA usually 20, Exam 60)
     let maxScore = activeAssessment.type === 'exam' ? 60 : 20;
@@ -678,7 +795,8 @@ const CbtPortal: React.FC<CbtPortalProps> = ({ onBack }) => {
     setScoreData(resultPayload);
 
     try {
-      // 1. Log the Exam Submission for Teacher View
+      // 1. Log the Exam Submission (For Teacher View)
+      // This is now done for ALL exams, including Theory
       const examLog: ExamLog = {
           examCode: activeAssessment.examCode,
           studentName: student.studentName,
@@ -693,6 +811,8 @@ const CbtPortal: React.FC<CbtPortalProps> = ({ onBack }) => {
       await addDoc(collection(db, 'Exam Logs'), examLog);
 
       // 2. Update Result Sheet Data
+      // Update result sheet even for mixed/theory. 
+      // If pure theory, score is 0. Teacher can update result sheet manually later.
       const qResult = query(collection(db, 'Result Data'), 
         where("schoolId", "==", student.schoolId),
         where("admissionNumber", "==", student.admissionNumber),
@@ -732,7 +852,9 @@ const CbtPortal: React.FC<CbtPortalProps> = ({ onBack }) => {
         return;
       }
       
-      setSuccess("Exam Submitted & Result Sheet Updated!");
+      setSuccess(activeAssessment.questionMode === 'theory' 
+        ? "Theory Exam Submitted! Pending review." 
+        : "Exam Submitted & Result Sheet Updated!");
       
     } catch (err) {
       console.error(err);
@@ -1070,9 +1192,12 @@ const CbtPortal: React.FC<CbtPortalProps> = ({ onBack }) => {
                                     <td className="p-3">{assess.classLevel}</td>
                                     <td className="p-3 uppercase text-xs">{assess.type}</td>
                                     <td className="p-3 text-center">{assess.questions.length}</td>
-                                    <td className="p-3">
+                                    <td className="p-3 flex gap-2">
                                         <button onClick={() => setViewingHistoryItem(assess)} className="text-blue-600 hover:text-blue-800 flex items-center gap-1">
                                             <Eye size={16} /> View
+                                        </button>
+                                        <button onClick={() => handleEditAssessment(assess)} className="text-orange-600 hover:text-orange-800 flex items-center gap-1">
+                                            <Edit size={16} /> Edit
                                         </button>
                                     </td>
                                 </tr>
@@ -1084,7 +1209,13 @@ const CbtPortal: React.FC<CbtPortalProps> = ({ onBack }) => {
         )}
 
         <div className="bg-white rounded-xl shadow-lg p-6 mb-6">
-           <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center gap-2"><Upload size={18} /> Create New Assessment</h3>
+           <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg font-bold text-gray-800 flex items-center gap-2">
+                  {editingId ? <Edit size={18} className="text-orange-500"/> : <Upload size={18} />} 
+                  {editingId ? "Edit Assessment" : "Create New Assessment"}
+              </h3>
+              {editingId && <button onClick={() => { setEditingId(null); setAssessmentForm({...assessmentForm, generatedQuestions: [], notes: ''}); }} className="text-sm text-gray-500 hover:text-black">Cancel Edit</button>}
+           </div>
            
            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
              <div>
@@ -1189,7 +1320,7 @@ const CbtPortal: React.FC<CbtPortalProps> = ({ onBack }) => {
                
                <div>
                   <label className="text-xs font-bold text-gray-600 uppercase block mb-1">
-                      Number of Questions to Generate
+                      Number of Questions to Generate (AI)
                   </label>
                   <input 
                       type="number" 
@@ -1246,24 +1377,33 @@ const CbtPortal: React.FC<CbtPortalProps> = ({ onBack }) => {
                   <textarea 
                      id="cbt-notes-input"
                      className="w-full p-3 border rounded-lg h-40 text-sm focus:ring-2 focus:ring-purple-500 outline-none font-mono bg-white"
-                     placeholder={assessmentForm.questionMode === 'comprehension' ? "Paste the comprehension passage here..." : "Paste lesson notes or topic summary here. AI will strictly use this content to generate questions."}
+                     placeholder={assessmentForm.questionMode === 'comprehension' ? "Paste the comprehension passage here..." : "Paste lesson notes or topic summary here. AI will strictly use this content to generate questions. OR manually type questions (1. Question a. Option)"}
                      value={assessmentForm.notes}
                      onChange={e => setAssessmentForm({...assessmentForm, notes: e.target.value})}
                   ></textarea>
                   <p className="text-[10px] text-gray-500 mt-1 flex items-center gap-1">
-                     <BrainCircuit size={10} /> Questions will be generated from content and <b>appended</b> to the list.
+                     <BrainCircuit size={10} /> Generate with AI from content OR <Wand2 size={10}/> Convert manually typed questions.
                   </p>
                </div>
            </div>
            
-           <button 
-             onClick={handleGenerateQuestions} 
-             disabled={loading}
-             className="w-full mt-4 bg-purple-600 text-white px-6 py-3 rounded-lg font-bold flex items-center justify-center gap-2 hover:bg-purple-700 disabled:opacity-50 shadow-md transition"
-           >
-             {loading ? <Loader2 className="animate-spin" size={18} /> : <BrainCircuit size={18} />} 
-             Generate & Add {assessmentForm.questionCount} {assessmentForm.questionMode} Questions
-           </button>
+           <div className="flex flex-col md:flex-row gap-3 mt-4">
+               <button 
+                 onClick={handleGenerateQuestions} 
+                 disabled={loading}
+                 className="flex-1 bg-purple-600 text-white px-6 py-3 rounded-lg font-bold flex items-center justify-center gap-2 hover:bg-purple-700 disabled:opacity-50 shadow-md transition"
+               >
+                 {loading ? <Loader2 className="animate-spin" size={18} /> : <BrainCircuit size={18} />} 
+                 Generate AI Questions
+               </button>
+               <button 
+                 onClick={handleManualExtract}
+                 disabled={loading}
+                 className="flex-1 bg-gray-800 text-white px-6 py-3 rounded-lg font-bold flex items-center justify-center gap-2 hover:bg-gray-900 disabled:opacity-50 shadow-md transition"
+               >
+                 <Wand2 size={18} /> Convert Text to Questions
+               </button>
+           </div>
 
            {success && (
                <div className="mt-4 bg-green-50 text-green-700 p-3 rounded font-bold border border-green-200 flex items-center gap-2">
@@ -1306,7 +1446,7 @@ const CbtPortal: React.FC<CbtPortalProps> = ({ onBack }) => {
                         disabled={loading}
                         className="bg-green-600 text-white px-4 py-2 rounded-lg font-bold flex items-center gap-2 hover:bg-green-700 shadow-md transition text-xs"
                     >
-                        <Save size={16} /> Save & Publish
+                        <Save size={16} /> {editingId ? "Update Assessment" : "Save & Publish"}
                     </button>
                  </div>
               </div>

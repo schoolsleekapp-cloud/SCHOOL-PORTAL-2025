@@ -1,4 +1,5 @@
 
+
 declare global {
   var __app_id: string | undefined;
 }
@@ -27,6 +28,11 @@ export const AFFECTIVE_TRAITS = [
 export const PSYCHOMOTOR_SKILLS = [
   "Handwriting", "Verbal Fluency", "Games & Sports", 
   "Handling Tools", "Drawing & Painting", "Musical Skills"
+];
+
+export const COGNITIVE_TRAITS = [
+  "Mental Alertness", "Creativity", "Organization", 
+  "Participation", "Resourcefulness", "Understanding"
 ];
 
 // Sort subjects alphabetically, but remove "Others" first
