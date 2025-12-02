@@ -71,7 +71,7 @@ export interface ResultData {
 export interface SchoolData {
   schoolName: string;
   schoolId: string;
-  schoolCode: string;
+  schoolCode: string; // Used as Password
   schoolAddress: string;
   schoolEmail: string;
   schoolPhone: string;
@@ -146,4 +146,4 @@ export interface ExamLog {
   type: string;
 }
 
-export type ViewState = 'home' | 'create' | 'view-result' | 'admin-dashboard' | 'register-student' | 'register-school' | 'register-teacher' | 'super-admin-view' | 'admin-search' | 'attendance' | 'cbt-portal' | 'teachers-portal';
+export type ViewState = 'home' | 'create' | 'view-result' | 'admin-dashboard' | 'register-student' | 'register-school' | 'register-teacher' | 'super-admin-view' | 'admin-search' | 'attendance' | 'cbt-portal' | 'teachers-portal' | 'school-admin-login' | 'school-admin-dashboard';

@@ -1,10 +1,10 @@
 
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { 
   School, FileText, Search, ShieldAlert, Edit, Users, Building2, 
   Database, Plus, Trash2, Trophy, Activity, 
   Sparkles, Loader2, Eye, ArrowLeft, RefreshCw, KeyRound, CheckCircle, Palette, Phone, Mail, MapPin, Clock, Star, UserCog,
-  Upload, QrCode, GraduationCap, Lock, House, LayoutDashboard, UserCheck, CreditCard, LogIn, LogOut, CalendarCheck, Calendar, ChevronLeft, ChevronRight, FileDown, Laptop2, BrainCircuit, X, User
+  Upload, QrCode, GraduationCap, Lock, House, LayoutDashboard, UserCheck, CreditCard, LogIn, LogOut, CalendarCheck, Calendar, ChevronLeft, ChevronRight, FileDown, Laptop2, BrainCircuit, X, User, BarChart3
 } from 'lucide-react';
 import { collection, addDoc, query, where, getDocs, doc, updateDoc, orderBy } from 'firebase/firestore';
 
@@ -16,7 +16,7 @@ import TeacherIdCard from './components/TeacherIdCard';
 import QrScannerModal from './components/QrScannerModal';
 import IdCardManager from './components/IdCardManager';
 import CbtPortal from './components/CbtPortal'; // Import CBT Portal
-import { ResultData, Subject, SchoolData, StudentData, ViewState, TeacherData, AttendanceLog } from './types';
+import { ResultData, Subject, SchoolData, StudentData, ViewState, TeacherData, AttendanceLog, CbtAssessment } from './types';
 import { 
   THEME_COLORS, AFFECTIVE_TRAITS, PSYCHOMOTOR_SKILLS, COGNITIVE_TRAITS,
   ALL_NIGERIAN_SUBJECTS, CLASS_LEVELS, TEACHER_SECRET_CODE, SUPER_ADMIN_KEY, APP_ID 
@@ -42,6 +42,18 @@ export default function App() {
   const [allTeachers, setAllTeachers] = useState<TeacherData[]>([]);
   const [allResults, setAllResults] = useState<ResultData[]>([]);
   const [masterSearch, setMasterSearch] = useState('');
+
+  // School Admin State
+  const [currentSchool, setCurrentSchool] = useState<SchoolData | null>(null);
+  const [schoolLogin, setSchoolLogin] = useState({ id: '', password: '' });
+  const [schoolDashboardTab, setSchoolDashboardTab] = useState<'overview' | 'teachers' | 'students' | 'results' | 'attendance' | 'exams'>('overview');
+  const [schoolData, setSchoolData] = useState({
+    teachers: [] as TeacherData[],
+    students: [] as StudentData[],
+    results: [] as ResultData[],
+    attendance: [] as AttendanceLog[],
+    exams: [] as CbtAssessment[]
+  });
 
   // Initial Form State
   const initialFormState: ResultData = {
@@ -87,6 +99,49 @@ export default function App() {
       schoolId: string
   } | null>(null);
   const [guardianInfo, setGuardianInfo] = useState({ name: '', phone: '' });
+
+  // Fetch School Dashboard Data
+  useEffect(() => {
+    if (view === 'school-admin-dashboard' && currentSchool) {
+        const fetchSchoolData = async () => {
+            setLoading(true);
+            try {
+                // Fetch Teachers
+                const qT = query(collection(db, 'Teacher Data'), where('schoolId', '==', currentSchool.schoolId));
+                const snapT = await getDocs(qT);
+                const teachers = snapT.docs.map(d => d.data() as TeacherData);
+
+                // Fetch Students
+                const qS = query(collection(db, 'Student Data'), where('schoolId', '==', currentSchool.schoolId));
+                const snapS = await getDocs(qS);
+                const students = snapS.docs.map(d => d.data() as StudentData);
+
+                // Fetch Recent Results (limit 20 for performance)
+                const qR = query(collection(db, 'Result Data'), where('schoolId', '==', currentSchool.schoolId));
+                const snapR = await getDocs(qR);
+                const results = snapR.docs.map(d => d.data() as ResultData);
+
+                // Fetch Attendance
+                const qA = query(collection(db, 'Attendance Data'), where('schoolId', '==', currentSchool.schoolId));
+                const snapA = await getDocs(qA);
+                const attendance = snapA.docs.map(d => d.data() as AttendanceLog);
+
+                 // Fetch Exams
+                const qE = query(collection(db, 'CBT Assessments'), where('schoolId', '==', currentSchool.schoolId));
+                const snapE = await getDocs(qE);
+                const exams = snapE.docs.map(d => ({id: d.id, ...d.data()} as CbtAssessment));
+
+                setSchoolData({ teachers, students, results, attendance, exams });
+            } catch (err) {
+                console.error("Error fetching school data:", err);
+                setError("Failed to load school dashboard data.");
+            } finally {
+                setLoading(false);
+            }
+        };
+        fetchSchoolData();
+    }
+  }, [view, currentSchool]);
 
   const calculateGrade = (total: number, level: string) => {
     let system = [];
@@ -142,9 +197,11 @@ export default function App() {
     setFoundResult(null);
     setSearchQuery({ schoolId: '', studentId: '' });
     setAdminQuery({ schoolId: '', studentId: '', teacherCode: '' });
+    setSchoolLogin({ id: '', password: '' });
   };
 
   const handleConfirmAttendance = async () => {
+      // ... existing implementation
       if (!pendingAttendance) return;
       if (!guardianInfo.name || !guardianInfo.phone) {
           setError("Guardian Name and Phone are required.");
@@ -221,6 +278,7 @@ export default function App() {
   };
 
   const handleDownloadAttendanceReport = () => {
+    // ... existing implementation
     if (!attendanceReport || !window.html2pdf || !attendancePrintRef.current) return;
     
     const element = attendancePrintRef.current;
@@ -237,6 +295,7 @@ export default function App() {
   };
 
   const handleScanSuccess = async (decodedText: string) => {
+    // ... existing implementation
     setShowScanner(false);
     try {
         const data = JSON.parse(decodedText);
@@ -382,6 +441,7 @@ export default function App() {
   };
 
   const handlePublish = async () => {
+      // ... existing implementation
     setLoading(true);
     try {
       const teacherCode = formData.teacherId.trim();
@@ -438,6 +498,7 @@ export default function App() {
   const handleAutoFillSchool = async () => { if (!formData.schoolId) return; setSuccessMsg("Checking School Database..."); try { const q = query(collection(db, 'School Data'), where("schoolId", "==", formData.schoolId.trim())); const querySnapshot = await getDocs(q); if (!querySnapshot.empty) { const schoolData = querySnapshot.docs[0].data() as SchoolData; setFormData(prev => ({ ...prev, schoolName: schoolData.schoolName || prev.schoolName, schoolLogo: schoolData.schoolLogo || prev.schoolLogo, schoolEmail: schoolData.schoolEmail || prev.schoolEmail, schoolPhone: schoolData.schoolPhone || prev.schoolPhone, schoolAddress: schoolData.schoolAddress || prev.schoolAddress, })); setSuccessMsg("School details loaded automatically!"); } else { setSuccessMsg(""); } } catch (err) { console.error(err); setSuccessMsg(""); } setTimeout(() => setSuccessMsg(''), 2000); };
   
   const handleAutoFillStudent = async () => {
+    // ... existing implementation
     if (!formData.schoolId || !formData.admissionNumber) return;
     setSuccessMsg("Checking Student Database...");
     
@@ -490,6 +551,7 @@ export default function App() {
   const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => { const file = e.target.files?.[0]; if (file) { if (file.size > 500000) { setError("Image file is too large. Please use an image under 500KB."); return; } const reader = new FileReader(); reader.onloadend = () => { const result = reader.result as string; setFormData(prev => ({ ...prev, schoolLogo: result })); setRegData(prev => ({ ...prev, schoolLogo: result })); }; reader.readAsDataURL(file); } };
   
   const handleSubjectChange = (index: number, field: keyof Subject, value: string | number) => { 
+      // ... existing implementation
       const newSubjects = [...formData.subjects]; 
       const subject = { ...newSubjects[index] }; 
       if (field === 'selectedSubject') { 
@@ -575,8 +637,82 @@ export default function App() {
           setLoading(false); 
       } 
   };
-  const handleRegisterSchool = async () => { if (!regData.schoolName || !regData.schoolId || !regData.schoolCode) { setError("School Name, ID, and Secret Code are required."); return; } setLoading(true); try { await addDoc(collection(db, 'School Data'), { ...regData, createdAt: new Date().toISOString(), userId: 'anonymous' }); setSuccessMsg("School Registered Successfully!"); setTimeout(() => { setSuccessMsg(''); setRegData({}); }, 2000); } catch(err: any) { console.error("School Registration Error:", err); setError(`Failed to register school: ${err.message || 'Network Error'}`); } finally { setLoading(false); } };
+  const handleRegisterSchool = async () => { 
+      if (!regData.schoolName || !regData.schoolCode) { 
+          setError("School Name and Password are required."); 
+          return; 
+      } 
+      setLoading(true); 
+      try { 
+          const newSchoolId = `SCH-${Math.floor(1000 + Math.random() * 9000)}`;
+          const newSchool: SchoolData = {
+              schoolName: regData.schoolName!,
+              schoolId: newSchoolId,
+              schoolCode: regData.schoolCode!, // Password
+              schoolAddress: regData.schoolAddress || '',
+              schoolEmail: regData.schoolEmail || '',
+              schoolPhone: regData.schoolPhone || '',
+              schoolLogo: regData.schoolLogo || ''
+          };
+
+          await addDoc(collection(db, 'School Data'), { ...newSchool, createdAt: new Date().toISOString(), userId: 'anonymous' }); 
+          
+          setSuccessMsg(`School Registered! ID: ${newSchoolId}`); 
+          setCurrentSchool(newSchool);
+
+          setTimeout(() => { 
+              setSuccessMsg(''); 
+              setRegData({}); 
+              setView('school-admin-dashboard');
+          }, 1500); 
+      } catch(err: any) { 
+          console.error("School Registration Error:", err); 
+          setError(`Failed to register school: ${err.message || 'Network Error'}`); 
+      } finally { 
+          setLoading(false); 
+      } 
+  };
+
+  const handleSchoolLogin = async () => {
+    if (!schoolLogin.id || !schoolLogin.password) {
+        setError("School ID and Password are required.");
+        return;
+    }
+    setLoading(true);
+    setError('');
+    try {
+        const q = query(collection(db, 'School Data'), where("schoolId", "==", schoolLogin.id.trim()));
+        const snap = await getDocs(q);
+        
+        if (snap.empty) {
+            setError("School ID not found.");
+            setLoading(false);
+            return;
+        }
+
+        const school = snap.docs[0].data() as SchoolData;
+        if (school.schoolCode !== schoolLogin.password) {
+            setError("Invalid Password.");
+            setLoading(false);
+            return;
+        }
+
+        setCurrentSchool(school);
+        setSuccessMsg("Login Successful!");
+        setTimeout(() => {
+            setSuccessMsg('');
+            setView('school-admin-dashboard');
+        }, 1000);
+    } catch (err) {
+        console.error(err);
+        setError("Login failed due to network or server error.");
+    } finally {
+        setLoading(false);
+    }
+  };
+
   const handleCheckResult = async () => {
+    // ... existing implementation
     if (!searchQuery.schoolId || !searchQuery.studentId) {
         setError("School ID and Student ID are required.");
         return;
@@ -604,6 +740,7 @@ export default function App() {
   };
 
   const handleAdminLookup = async () => { 
+      // ... existing implementation
       if (!adminQuery.schoolId || !adminQuery.studentId || !adminQuery.teacherCode) { setError("All fields are required."); return; } 
       setLoading(true); setError(''); 
       try { 
@@ -648,6 +785,190 @@ export default function App() {
   const getDaysInMonth = (date: Date) => { const year = date.getFullYear(); const month = date.getMonth(); const days = new Date(year, month + 1, 0).getDate(); return Array.from({ length: days }, (_, i) => { const d = new Date(year, month, i + 1); return { date: d, iso: d.toISOString().split('T')[0], dayNum: i + 1, isWeekend: d.getDay() === 0 || d.getDay() === 6 }; }); };
   const renderAttendanceView = () => { return ( <div className="max-w-2xl mx-auto bg-white p-8 rounded-2xl shadow-xl animate-slide-up text-center"> <h2 className="text-3xl font-bold text-gray-800 mb-6 flex items-center justify-center gap-2"><CalendarCheck className="text-purple-600" /> Class Attendance</h2> <div className="mb-8"> <p className="text-gray-500 mb-4">Select an action below.</p> <div className="grid grid-cols-1 md:grid-cols-3 gap-4"> <button onClick={() => { setScannerContext('attendance_in'); setShowScanner(true); setError(''); setSuccessMsg(''); setAttendanceStatus(null); setAttendanceReport(null); setSelectedDateLog(null); }} className="flex flex-col items-center justify-center p-5 bg-green-50 border-2 border-green-200 rounded-2xl hover:bg-green-100 hover:border-green-500 transition-all group"> <LogIn size={32} className="text-green-600 mb-1 group-hover:scale-110 transition-transform" /> <span className="text-lg font-bold text-green-700">Clock In</span> </button> <button onClick={() => { setScannerContext('attendance_out'); setShowScanner(true); setError(''); setSuccessMsg(''); setAttendanceStatus(null); setAttendanceReport(null); setSelectedDateLog(null); }} className="flex flex-col items-center justify-center p-5 bg-red-50 border-2 border-red-200 rounded-2xl hover:bg-red-100 hover:border-red-500 transition-all group"> <LogOut size={32} className="text-red-600 mb-1 group-hover:scale-110 transition-transform" /> <span className="text-lg font-bold text-red-700">Clock Out</span> </button> <button onClick={() => { setScannerContext('check_attendance'); setShowScanner(true); setError(''); setSuccessMsg(''); setAttendanceStatus(null); setAttendanceReport(null); setSelectedDateLog(null); }} className="flex flex-col items-center justify-center p-5 bg-blue-50 border-2 border-blue-200 rounded-2xl hover:bg-blue-100 hover:border-blue-500 transition-all group"> <Calendar size={32} className="text-blue-600 mb-1 group-hover:scale-110 transition-transform" /> <span className="text-lg font-bold text-blue-700">Check Report</span> </button> </div> </div> {attendanceStatus && (<div className={`p-6 rounded-xl border-2 animate-fade-in ${attendanceStatus.type === 'in' ? 'bg-green-50 border-green-200 text-green-800' : 'bg-red-50 border-red-200 text-red-800'}`}><div className="text-5xl mb-2">{attendanceStatus.type === 'in' ? '👋' : '🏠'}</div><h3 className="text-2xl font-bold">{attendanceStatus.name}</h3><p className="text-lg font-medium">{attendanceStatus.type === 'in' ? 'Clocked IN' : 'Clocked OUT'} at <span className="font-mono font-bold bg-white/50 px-2 rounded">{attendanceStatus.time}</span></p></div>)} {attendanceReport && ( <div className="mt-8 border-t pt-8 animate-fade-in"> <div className="bg-gray-50 p-4 rounded-xl mb-6 flex flex-wrap gap-4 items-end justify-center border border-gray-100"> <div> <label className="text-xs font-bold text-gray-500 block mb-1">Start Date</label> <input type="date" value={reportStartDate} onChange={e => setReportStartDate(e.target.value)} className="p-2 border rounded text-sm w-36 outline-none focus:ring-1 focus:ring-purple-500 bg-white"/> </div> <div> <label className="text-xs font-bold text-gray-500 block mb-1">End Date</label> <input type="date" value={reportEndDate} onChange={e => setReportEndDate(e.target.value)} className="p-2 border rounded text-sm w-36 outline-none focus:ring-1 focus:ring-purple-500 bg-white"/> </div> <button onClick={handleDownloadAttendanceReport} className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 h-[38px] transition shadow-md"> <FileDown size={18}/> Download PDF </button> </div> <div className="grid grid-cols-7 gap-1 mb-2 text-xs font-bold text-gray-400"><div>Sun</div><div>Mon</div><div>Tue</div><div>Wed</div><div>Thu</div><div>Fri</div><div>Sat</div></div> <div className="grid grid-cols-7 gap-1"> {getDaysInMonth(reportMonth).map((d) => { const log = attendanceReport.logs.find(log => log.date === d.iso); const isLogged = !!log; return (<div key={d.dayNum} onClick={() => { if(isLogged) setSelectedDateLog(log || null); }} className={`aspect-square flex items-center justify-center rounded-lg text-sm font-bold relative group ${isLogged ? 'bg-green-500 text-white cursor-pointer' : 'bg-gray-50 text-gray-400'}`}>{d.dayNum}</div>); })} </div> </div> )} {selectedDateLog && ( <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4 animate-fade-in" onClick={() => setSelectedDateLog(null)}> <div className="bg-white p-6 rounded-2xl shadow-2xl max-w-sm w-full m-4 relative" onClick={e => e.stopPropagation()}> <button onClick={() => setSelectedDateLog(null)} className="absolute top-4 right-4 text-gray-400 hover:text-gray-600">✕</button> <h3 className="font-bold text-xl text-gray-800 mb-1">Attendance Details</h3> <p className="text-sm text-gray-500 mb-6 font-medium">{selectedDateLog.date}</p> <div className="space-y-4"><div className="bg-green-50 p-4 rounded-xl border border-green-100"><p className="text-2xl font-mono font-bold text-green-900 mb-2">{selectedDateLog.clockInTime || '---'}</p><div className="text-sm text-green-800 bg-white/60 p-2 rounded-lg"><div className="flex gap-1 mb-1"><span className="font-semibold text-green-900 w-16">Guardian:</span> <span>{selectedDateLog.dropOffGuardian || 'N/A'}</span></div></div></div><div className="bg-red-50 p-4 rounded-xl border border-red-100"><p className="text-2xl font-mono font-bold text-red-900 mb-2">{selectedDateLog.clockOutTime || '---'}</p><div className="text-sm text-red-800 bg-white/60 p-2 rounded-lg"><div className="flex gap-1 mb-1"><span className="font-semibold text-red-900 w-16">Guardian:</span> <span>{selectedDateLog.pickUpGuardian || 'N/A'}</span></div></div></div></div> </div> </div> )} <button onClick={() => setView('home')} className="mt-8 text-gray-500 hover:text-gray-800 font-medium">Back to Home</button> </div> ); };
   const renderSuperAdminView = () => ( <div className="max-w-6xl mx-auto space-y-6 animate-fade-in"> <div className="flex flex-col md:flex-row justify-between items-center bg-white p-6 rounded-2xl shadow-sm border-b gap-4"> <h2 className="text-2xl font-bold text-gray-800 flex items-center gap-2"><Database className="text-red-600" /> Master Database</h2> <div className="flex gap-2 flex-wrap"> <select value={adminTab} onChange={(e) => setAdminTab(e.target.value as any)} className="p-2 border rounded-lg bg-gray-50 text-sm font-bold outline-none focus:ring-2 focus:ring-purple-500 cursor-pointer"> <option value="overview">Overview</option> <option value="schools">Schools</option> <option value="students">Students</option> <option value="teachers">Teachers</option> <option value="results">Results</option> <option value="id_cards">ID Cards</option> </select> <button onClick={() => setView('admin-dashboard')} className="bg-gray-200 hover:bg-gray-300 text-gray-700 px-4 py-2 rounded-lg font-bold text-sm">Close</button> </div> </div> <div className="bg-white p-6 rounded-2xl shadow-xl min-h-[500px]"> {adminTab === 'overview' && (<div className="grid grid-cols-2 md:grid-cols-4 gap-4"><div className="p-4 bg-orange-50 border border-orange-100 rounded-xl text-center"><h3 className="text-3xl font-bold text-orange-600">{allSchools.length}</h3><p className="text-sm text-gray-500 uppercase font-bold">Schools</p></div></div>)} {adminTab === 'schools' && (<div className="overflow-x-auto"><table className="w-full text-sm text-left border-collapse"><thead className="bg-gray-100 text-gray-600 uppercase text-xs"><tr><th className="p-3 border-b">School Name</th><th className="p-3 border-b">ID</th></tr></thead><tbody className="divide-y">{allSchools.map((s, i) => (<tr key={i} className="hover:bg-gray-50"><td className="p-3 font-bold">{s.schoolName}</td><td className="p-3 font-mono text-xs">{s.schoolId}</td></tr>))}</tbody></table></div>)} {adminTab === 'students' && (<div className="space-y-4"><div className="relative"><Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} /><input type="text" placeholder="Search students..." className="w-full pl-10 pr-4 py-2 border rounded-lg outline-none focus:ring-2 focus:ring-blue-500" onChange={(e) => setMasterSearch(e.target.value)} /></div><div className="overflow-x-auto max-h-[500px]"><table className="w-full text-sm text-left border-collapse"><thead className="bg-gray-100 text-gray-600 uppercase text-xs sticky top-0"><tr><th className="p-3 border-b">Name</th><th className="p-3 border-b">Adm No</th></tr></thead><tbody className="divide-y">{allStudents.filter(s => s.studentName.toLowerCase().includes(masterSearch.toLowerCase())).map((s, i) => (<tr key={i} className="hover:bg-gray-50"><td className="p-3 font-bold">{s.studentName}</td><td className="p-3">{s.admissionNumber}</td></tr>))}</tbody></table></div></div>)} {adminTab === 'teachers' && (<div className="overflow-x-auto"><table className="w-full text-sm text-left border-collapse"><thead className="bg-gray-100 text-gray-600 uppercase text-xs"><tr><th className="p-3 border-b">Name</th><th className="p-3 border-b">ID</th></tr></thead><tbody className="divide-y">{allTeachers.map((t, i) => (<tr key={i} className="hover:bg-gray-50"><td className="p-3 font-bold">{t.teacherName}</td><td className="p-3 font-mono text-xs">{t.generatedId}</td></tr>))}</tbody></table></div>)} {adminTab === 'id_cards' && (<IdCardManager students={allStudents} teachers={allTeachers} />)} {adminTab === 'results' && (<div className="text-center text-gray-500 py-12 bg-gray-50 rounded-xl border border-dashed border-gray-300"><Database size={48} className="mx-auto text-gray-300 mb-2" /><p>Results are optimized for search-based access.</p></div>)} </div> </div> );
+
+  const renderSchoolAdminDashboard = () => (
+    <div className="max-w-6xl mx-auto space-y-6 animate-fade-in">
+        <div className="bg-white p-6 rounded-2xl shadow-sm border-b flex flex-col md:flex-row justify-between items-center gap-4">
+            <div className="flex items-center gap-4">
+                 <div className="w-12 h-12 bg-orange-100 rounded-full flex items-center justify-center text-orange-600 border border-orange-200">
+                    <School size={24} />
+                 </div>
+                 <div>
+                    <h2 className="text-2xl font-bold text-gray-800">{currentSchool?.schoolName}</h2>
+                    <p className="text-sm text-gray-500 font-mono">ID: {currentSchool?.schoolId}</p>
+                 </div>
+            </div>
+            <div className="flex items-center gap-3">
+                 <select 
+                    value={schoolDashboardTab} 
+                    onChange={(e) => setSchoolDashboardTab(e.target.value as any)}
+                    className="p-2 border rounded-lg bg-gray-50 text-sm font-bold outline-none focus:ring-2 focus:ring-orange-500"
+                 >
+                    <option value="overview">Overview</option>
+                    <option value="teachers">Teachers</option>
+                    <option value="students">Students</option>
+                    <option value="results">Results</option>
+                    <option value="exams">Exams</option>
+                    <option value="attendance">Attendance</option>
+                 </select>
+                 <button onClick={() => { setCurrentSchool(null); setView('home'); }} className="text-red-500 font-bold hover:bg-red-50 px-4 py-2 rounded-lg transition">Logout</button>
+            </div>
+        </div>
+
+        <div className="bg-white p-6 rounded-2xl shadow-xl min-h-[400px]">
+             {loading && <div className="flex justify-center py-12"><Loader2 className="animate-spin text-orange-500" size={32} /></div>}
+             
+             {!loading && schoolDashboardTab === 'overview' && (
+                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                     <div className="p-6 bg-blue-50 rounded-xl border border-blue-100 text-center">
+                         <h3 className="text-3xl font-bold text-blue-600 mb-1">{schoolData.teachers.length}</h3>
+                         <p className="text-xs font-bold uppercase text-gray-500">Teachers</p>
+                     </div>
+                     <div className="p-6 bg-green-50 rounded-xl border border-green-100 text-center">
+                         <h3 className="text-3xl font-bold text-green-600 mb-1">{schoolData.students.length}</h3>
+                         <p className="text-xs font-bold uppercase text-gray-500">Students</p>
+                     </div>
+                     <div className="p-6 bg-purple-50 rounded-xl border border-purple-100 text-center">
+                         <h3 className="text-3xl font-bold text-purple-600 mb-1">{schoolData.results.length}</h3>
+                         <p className="text-xs font-bold uppercase text-gray-500">Results</p>
+                     </div>
+                      <div className="p-6 bg-indigo-50 rounded-xl border border-indigo-100 text-center">
+                         <h3 className="text-3xl font-bold text-indigo-600 mb-1">{schoolData.exams.length}</h3>
+                         <p className="text-xs font-bold uppercase text-gray-500">Active Exams</p>
+                     </div>
+                 </div>
+             )}
+
+             {!loading && schoolDashboardTab === 'teachers' && (
+                 <div className="overflow-x-auto">
+                     <table className="w-full text-sm text-left">
+                         <thead className="bg-gray-50 text-gray-500 uppercase text-xs">
+                             <tr>
+                                 <th className="p-3">Name</th>
+                                 <th className="p-3">Teacher ID</th>
+                                 <th className="p-3">Email</th>
+                             </tr>
+                         </thead>
+                         <tbody className="divide-y">
+                             {schoolData.teachers.map((t, i) => (
+                                 <tr key={i} className="hover:bg-gray-50">
+                                     <td className="p-3 font-bold">{t.teacherName}</td>
+                                     <td className="p-3 font-mono">{t.generatedId}</td>
+                                     <td className="p-3">{t.email}</td>
+                                 </tr>
+                             ))}
+                             {schoolData.teachers.length === 0 && <tr><td colSpan={3} className="p-4 text-center text-gray-400">No teachers found.</td></tr>}
+                         </tbody>
+                     </table>
+                 </div>
+             )}
+
+             {!loading && schoolDashboardTab === 'students' && (
+                 <div className="overflow-x-auto">
+                     <table className="w-full text-sm text-left">
+                         <thead className="bg-gray-50 text-gray-500 uppercase text-xs">
+                             <tr>
+                                 <th className="p-3">Name</th>
+                                 <th className="p-3">Admission No</th>
+                                 <th className="p-3">Class</th>
+                                 <th className="p-3">Parent Phone</th>
+                             </tr>
+                         </thead>
+                         <tbody className="divide-y">
+                             {schoolData.students.map((s, i) => (
+                                 <tr key={i} className="hover:bg-gray-50">
+                                     <td className="p-3 font-bold">{s.studentName}</td>
+                                     <td className="p-3 font-mono">{s.admissionNumber}</td>
+                                     <td className="p-3">{s.classLevel}</td>
+                                     <td className="p-3">{s.parentPhone}</td>
+                                 </tr>
+                             ))}
+                             {schoolData.students.length === 0 && <tr><td colSpan={4} className="p-4 text-center text-gray-400">No students found.</td></tr>}
+                         </tbody>
+                     </table>
+                 </div>
+             )}
+
+             {!loading && schoolDashboardTab === 'results' && (
+                  <div className="overflow-x-auto">
+                     <table className="w-full text-sm text-left">
+                         <thead className="bg-gray-50 text-gray-500 uppercase text-xs">
+                             <tr>
+                                 <th className="p-3">Student Name</th>
+                                 <th className="p-3">Class</th>
+                                 <th className="p-3">Term</th>
+                                 <th className="p-3">Session</th>
+                             </tr>
+                         </thead>
+                         <tbody className="divide-y">
+                             {schoolData.results.map((r, i) => (
+                                 <tr key={i} className="hover:bg-gray-50">
+                                     <td className="p-3 font-bold">{r.studentName}</td>
+                                     <td className="p-3">{r.classLevel}</td>
+                                     <td className="p-3">{r.term}</td>
+                                     <td className="p-3">{r.session}</td>
+                                 </tr>
+                             ))}
+                             {schoolData.results.length === 0 && <tr><td colSpan={4} className="p-4 text-center text-gray-400">No results uploaded yet.</td></tr>}
+                         </tbody>
+                     </table>
+                 </div>
+             )}
+
+            {!loading && schoolDashboardTab === 'exams' && (
+                  <div className="overflow-x-auto">
+                     <table className="w-full text-sm text-left">
+                         <thead className="bg-gray-50 text-gray-500 uppercase text-xs">
+                             <tr>
+                                 <th className="p-3">Subject</th>
+                                 <th className="p-3">Type</th>
+                                 <th className="p-3">Class</th>
+                                 <th className="p-3">Code</th>
+                             </tr>
+                         </thead>
+                         <tbody className="divide-y">
+                             {schoolData.exams.map((e, i) => (
+                                 <tr key={i} className="hover:bg-gray-50">
+                                     <td className="p-3 font-bold">{e.subject}</td>
+                                     <td className="p-3 uppercase">{e.type}</td>
+                                     <td className="p-3">{e.classLevel}</td>
+                                     <td className="p-3 font-mono text-purple-600">{e.examCode}</td>
+                                 </tr>
+                             ))}
+                             {schoolData.exams.length === 0 && <tr><td colSpan={4} className="p-4 text-center text-gray-400">No exams created yet.</td></tr>}
+                         </tbody>
+                     </table>
+                 </div>
+             )}
+
+             {!loading && schoolDashboardTab === 'attendance' && (
+                  <div className="overflow-x-auto">
+                     <table className="w-full text-sm text-left">
+                         <thead className="bg-gray-50 text-gray-500 uppercase text-xs">
+                             <tr>
+                                 <th className="p-3">Date</th>
+                                 <th className="p-3">Student</th>
+                                 <th className="p-3">In</th>
+                                 <th className="p-3">Out</th>
+                             </tr>
+                         </thead>
+                         <tbody className="divide-y">
+                             {schoolData.attendance.map((a, i) => (
+                                 <tr key={i} className="hover:bg-gray-50">
+                                     <td className="p-3 font-mono text-xs">{a.date}</td>
+                                     <td className="p-3 font-bold">{a.studentName}</td>
+                                     <td className="p-3 text-green-600">{a.clockInTime || '-'}</td>
+                                     <td className="p-3 text-red-600">{a.clockOutTime || '-'}</td>
+                                 </tr>
+                             ))}
+                             {schoolData.attendance.length === 0 && <tr><td colSpan={4} className="p-4 text-center text-gray-400">No attendance logs found.</td></tr>}
+                         </tbody>
+                     </table>
+                 </div>
+             )}
+        </div>
+    </div>
+  );
 
   return (
     <div className="min-h-screen bg-gray-100 font-sans text-gray-900 pb-12 print:bg-white print:p-0">
@@ -698,6 +1019,7 @@ export default function App() {
       {/* Main Content */}
       <main className="max-w-6xl mx-auto px-4 py-8">
         {error && !pendingAttendance && (<div className="mb-6 bg-red-50 border-l-4 border-red-500 p-4 rounded shadow-sm flex items-start gap-3"><ShieldAlert className="text-red-500 shrink-0 mt-0.5" size={20} /><div><h3 className="font-bold text-red-800">Error</h3><p className="text-sm text-red-700">{error}</p></div></div>)}
+        {successMsg && !pendingAttendance && (<div className="mb-6 bg-green-50 border-l-4 border-green-500 p-4 rounded shadow-sm flex items-start gap-3"><CheckCircle className="text-green-500 shrink-0 mt-0.5" size={20} /><div><h3 className="font-bold text-green-800">Success</h3><p className="text-sm text-green-700">{successMsg}</p></div></div>)}
 
         {view === 'home' && (
           <div className="flex flex-col items-center justify-center min-h-[60vh] text-center space-y-8 animate-fade-in">
@@ -1042,9 +1364,8 @@ export default function App() {
             <h2 className="text-2xl font-bold text-orange-800 mb-6 flex items-center gap-2"><Building2 /> School Registration</h2>
             <div className="space-y-4">
               <div><label className="text-xs font-bold text-gray-500">School Name</label><input type="text" className="w-full p-3 border rounded" onChange={(e) => setRegData({...regData, schoolName: e.target.value})} /></div>
-              <div className="grid grid-cols-2 gap-4">
-                <div><label className="text-xs font-bold text-gray-500">School ID (Public)</label><input type="text" className="w-full p-3 border rounded" onChange={(e) => setRegData({...regData, schoolId: e.target.value})} /></div>
-                <div><label className="text-xs font-bold text-red-500">School Secret Code</label><input type="text" className="w-full p-3 border rounded bg-red-50" onChange={(e) => setRegData({...regData, schoolCode: e.target.value})} /></div>
+              <div className="grid grid-cols-1 gap-4">
+                <div><label className="text-xs font-bold text-red-500">Password</label><input type="password" className="w-full p-3 border rounded bg-red-50" onChange={(e) => setRegData({...regData, schoolCode: e.target.value})} placeholder="Create a secure password" /></div>
               </div>
               <div><label className="text-xs font-bold text-gray-500">Address</label><input type="text" className="w-full p-3 border rounded" onChange={(e) => setRegData({...regData, schoolAddress: e.target.value})} /></div>
               <div className="grid grid-cols-2 gap-4">
@@ -1056,11 +1377,54 @@ export default function App() {
                 <button onClick={() => setView('admin-dashboard')} className="flex-1 py-3 bg-gray-200 rounded text-gray-700 font-bold">Cancel</button>
                 <button onClick={handleRegisterSchool} disabled={loading} className="flex-1 py-3 bg-orange-600 text-white rounded font-bold">{loading ? 'Registering...' : 'Register School'}</button>
               </div>
+              <div className="text-center mt-4">
+                  <button onClick={() => setView('school-admin-login')} className="text-orange-600 hover:underline text-sm font-bold">Already Registered? Login to Dashboard</button>
+              </div>
               {successMsg && <p className="text-green-600 text-center">{successMsg}</p>}
               {error && <p className="text-red-600 text-center">{error}</p>}
             </div>
           </div>
         )}
+
+        {view === 'school-admin-login' && (
+            <div className="max-w-md mx-auto mt-10 bg-white p-8 rounded-2xl shadow-xl animate-slide-up text-center">
+                 <div className="bg-orange-100 w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-6 text-orange-600">
+                    <School size={32} />
+                 </div>
+                 <h2 className="text-2xl font-bold text-gray-800 mb-2">School Admin Login</h2>
+                 <p className="text-gray-500 mb-6 text-sm">Access your school's dashboard.</p>
+                 
+                 <div className="space-y-4 text-left">
+                     <div>
+                         <label className="text-xs font-bold text-gray-500 uppercase">School ID</label>
+                         <input 
+                            type="text" 
+                            className="w-full p-3 border rounded-lg focus:ring-2 focus:ring-orange-500 outline-none" 
+                            placeholder="e.g. SCH-1234"
+                            value={schoolLogin.id}
+                            onChange={(e) => setSchoolLogin({...schoolLogin, id: e.target.value})}
+                         />
+                     </div>
+                     <div>
+                         <label className="text-xs font-bold text-gray-500 uppercase">Password</label>
+                         <input 
+                            type="password" 
+                            className="w-full p-3 border rounded-lg focus:ring-2 focus:ring-orange-500 outline-none"
+                            placeholder="********"
+                            value={schoolLogin.password}
+                            onChange={(e) => setSchoolLogin({...schoolLogin, password: e.target.value})}
+                         />
+                     </div>
+                     <button onClick={handleSchoolLogin} disabled={loading} className="w-full py-3 bg-orange-600 text-white font-bold rounded-lg hover:bg-orange-700 transition">
+                         {loading ? <Loader2 className="animate-spin mx-auto"/> : "Login"}
+                     </button>
+                 </div>
+                 <button onClick={() => setView('admin-dashboard')} className="mt-6 text-gray-400 text-sm hover:text-gray-600">Back</button>
+                 {error && <p className="text-red-500 mt-4 text-sm bg-red-50 p-2 rounded">{error}</p>}
+            </div>
+        )}
+
+        {view === 'school-admin-dashboard' && renderSchoolAdminDashboard()}
 
         {view === 'admin-search' && (
           <div className="max-w-md mx-auto space-y-8 animate-fade-in pt-8">
