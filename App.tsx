@@ -4,7 +4,7 @@ import {
   School, FileText, Search, ShieldAlert, Edit, Users, Building2, 
   Database, Plus, Trash2, Trophy, Activity, 
   Sparkles, Loader2, Eye, ArrowLeft, RefreshCw, KeyRound, CheckCircle, Palette, Phone, Mail, MapPin, Clock, Star, UserCog,
-  Upload, QrCode, GraduationCap, Lock, House, LayoutDashboard, UserCheck, CreditCard, LogIn, LogOut, CalendarCheck, Calendar, ChevronLeft, ChevronRight, FileDown, Laptop2, BrainCircuit, X
+  Upload, QrCode, GraduationCap, Lock, House, LayoutDashboard, UserCheck, CreditCard, LogIn, LogOut, CalendarCheck, Calendar, ChevronLeft, ChevronRight, FileDown, Laptop2, BrainCircuit, X, User
 } from 'lucide-react';
 import { collection, addDoc, query, where, getDocs, doc, updateDoc, orderBy } from 'firebase/firestore';
 
@@ -488,10 +488,54 @@ export default function App() {
   };
 
   const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => { const file = e.target.files?.[0]; if (file) { if (file.size > 500000) { setError("Image file is too large. Please use an image under 500KB."); return; } const reader = new FileReader(); reader.onloadend = () => { const result = reader.result as string; setFormData(prev => ({ ...prev, schoolLogo: result })); setRegData(prev => ({ ...prev, schoolLogo: result })); }; reader.readAsDataURL(file); } };
-  const handleSubjectChange = (index: number, field: keyof Subject, value: string | number) => { const newSubjects = [...formData.subjects]; const subject = { ...newSubjects[index] }; if (field === 'selectedSubject') { subject.selectedSubject = value as string; subject.name = value === 'Others' ? '' : value as string; } else if (field === 'name') { subject.name = value as string; } else { (subject as any)[field] = value; } if (['ca1', 'ca2', 'exam'].includes(field as string) || field === 'selectedSubject') { const safeTotal = (subject.ca1 === '' ? 0 : Number(subject.ca1)) + (subject.ca2 === '' ? 0 : Number(subject.ca2)) + (subject.exam === '' ? 0 : Number(subject.exam)); subject.total = safeTotal; const gradeInfo = calculateGrade(subject.total, formData.classLevel); subject.grade = gradeInfo.grade; subject.remark = gradeInfo.remark; } newSubjects[index] = subject; setFormData({ ...formData, subjects: newSubjects }); };
-  const handleAddSubject = () => { setFormData(prev => ({ ...prev, subjects: [ ...prev.subjects, { selectedSubject: '', name: '', ca1: '', ca2: '', exam: '', total: 0, average: 0, grade: '', remark: '' } ] })); };
+  
+  const handleSubjectChange = (index: number, field: keyof Subject, value: string | number) => { 
+      const newSubjects = [...formData.subjects]; 
+      const subject = { ...newSubjects[index] }; 
+      if (field === 'selectedSubject') { 
+          subject.selectedSubject = value as string; 
+          subject.name = value === 'Others' ? '' : value as string; 
+      } else if (field === 'name') { 
+          subject.name = value as string; 
+      } else { 
+          (subject as any)[field] = value; 
+      } 
+      
+      if (['ca1', 'ca2', 'ca3', 'exam'].includes(field as string) || field === 'selectedSubject') { 
+          const safeTotal = (subject.ca1 === '' ? 0 : Number(subject.ca1)) + 
+                            (subject.ca2 === '' ? 0 : Number(subject.ca2)) + 
+                            (subject.ca3 === '' ? 0 : Number(subject.ca3)) + 
+                            (subject.exam === '' ? 0 : Number(subject.exam)); 
+          subject.total = safeTotal; 
+          const gradeInfo = calculateGrade(subject.total, formData.classLevel); 
+          subject.grade = gradeInfo.grade; 
+          subject.remark = gradeInfo.remark; 
+      } 
+      newSubjects[index] = subject; 
+      setFormData({ ...formData, subjects: newSubjects }); 
+  };
+
+  const handleAddSubject = () => { 
+      setFormData(prev => ({ 
+          ...prev, 
+          subjects: [ ...prev.subjects, { selectedSubject: '', name: '', ca1: '', ca2: '', ca3: '', exam: '', total: 0, average: 0, grade: '', remark: '' } ] 
+      })); 
+  };
+  
   const handleRemoveSubject = (index: number) => { const newSubjects = [...formData.subjects]; newSubjects.splice(index, 1); setFormData({ ...formData, subjects: newSubjects }); };
-  const loadPresetSubjects = () => { let subjectsToLoad: string[] = []; const lvl = formData.classLevel; if (lvl.startsWith("Nursery")) subjectsToLoad = ["Number Work", "Letter Work", "Health Habits", "Social Norms", "Rhymes", "Creative Arts"]; else if (lvl.startsWith("Basic")) subjectsToLoad = ["Mathematics", "English Language", "Basic Science & Technology", "Verbal Reasoning", "Quantitative Reasoning"]; else if (lvl.startsWith("JSS")) subjectsToLoad = ["Mathematics", "English Studies", "Basic Science", "Social Studies", "Civic Education"]; else subjectsToLoad = ["Mathematics", "English Language", "Biology", "Economics"]; const mapped = subjectsToLoad.map(name => ({ selectedSubject: name, name, ca1: '', ca2: '', exam: '', total: 0, average: 0, grade: 'F', remark: 'Fail' })); setFormData(prev => ({ ...prev, subjects: mapped })); };
+  
+  const loadPresetSubjects = () => { 
+      let subjectsToLoad: string[] = []; 
+      const lvl = formData.classLevel; 
+      if (lvl.startsWith("Nursery")) subjectsToLoad = ["Number Work", "Letter Work", "Health Habits", "Social Norms", "Rhymes", "Creative Arts"]; 
+      else if (lvl.startsWith("Basic")) subjectsToLoad = ["Mathematics", "English Language", "Basic Science & Technology", "Verbal Reasoning", "Quantitative Reasoning"]; 
+      else if (lvl.startsWith("JSS")) subjectsToLoad = ["Mathematics", "English Studies", "Basic Science", "Social Studies", "Civic Education"]; 
+      else subjectsToLoad = ["Mathematics", "English Language", "Biology", "Economics"]; 
+      
+      const mapped = subjectsToLoad.map(name => ({ selectedSubject: name, name, ca1: '', ca2: '', ca3: '', exam: '', total: 0, average: 0, grade: 'F', remark: 'Fail' })); 
+      setFormData(prev => ({ ...prev, subjects: mapped })); 
+  };
+  
   const handleGenerateRemarks = async () => { if (formData.subjects.length === 0) { setError("Please add subjects and scores first."); return; } setLoading(true); setError(''); try { const remarks = await generateGeminiRemarks(formData.studentName, formData.subjects, formData.classLevel, formData.position, formData.affective); setFormData(prev => ({ ...prev, principalRemark: remarks.principalRemark, teacherRemark: remarks.teacherRemark })); setSuccessMsg("Remarks generated by AI!"); } catch (err) { setError("Failed to generate remarks."); } finally { setLoading(false); } };
   const handleRegisterStudent = async () => { if (!regData.studentName || !regData.admissionNumber || !regData.schoolId) { setError("Name, Admission Number, and School ID are required."); return; } setLoading(true); setError(''); try { const q = query(collection(db, 'School Data'), where("schoolId", "==", regData.schoolId.trim())); const querySnapshot = await getDocs(q); if (querySnapshot.empty) { setError("School ID not found. Please register the school first."); return; } const schoolData = querySnapshot.docs[0].data() as SchoolData; const schoolName = schoolData.schoolName || ""; const schoolLogo = schoolData.schoolLogo || ""; const uniqueId = Math.random().toString(36).substring(2, 10).toUpperCase(); const studentPayload: StudentData = { studentName: regData.studentName || "", admissionNumber: regData.admissionNumber || "", schoolId: regData.schoolId || "", classLevel: regData.classLevel || "", gender: regData.gender || "Male", parentPhone: regData.parentPhone || "", generatedId: uniqueId, schoolName: schoolName, schoolLogo: schoolLogo, createdAt: new Date().toISOString(), userId: 'anonymous' }; await addDoc(collection(db, 'Student Data'), studentPayload); setGeneratedStudent(studentPayload); setSuccessMsg("Student Registered Successfully!"); setShowIdCard(true); } catch(err: any) { console.error("Student Registration Error:", err); setError("Failed to register student."); } finally { setLoading(false); } };
   const handleRegisterTeacher = async () => { 
@@ -574,7 +618,15 @@ export default function App() {
               else if (data.teacherId === adminQuery.teacherCode) isAuthorized = true; 
               if (!isAuthorized) { setError("Access Denied: Teacher ID does not match the record owner."); setLoading(false); return; } 
               
-              const enhancedSubjects = (data.subjects || []).map(s => ({ ...s, ca1: s.ca1 === undefined ? '' : s.ca1, ca2: s.ca2 === undefined ? '' : s.ca2, exam: s.exam === undefined ? '' : s.exam, average: s.average || 0, selectedSubject: ALL_NIGERIAN_SUBJECTS.includes(s.name) ? s.name : 'Others' })); 
+              const enhancedSubjects = (data.subjects || []).map(s => ({ 
+                  ...s, 
+                  ca1: s.ca1 === undefined ? '' : s.ca1, 
+                  ca2: s.ca2 === undefined ? '' : s.ca2, 
+                  ca3: s.ca3 === undefined ? '' : s.ca3, 
+                  exam: s.exam === undefined ? '' : s.exam, 
+                  average: s.average || 0, 
+                  selectedSubject: ALL_NIGERIAN_SUBJECTS.includes(s.name) ? s.name : 'Others' 
+              })); 
               
               setFormData({ 
                   ...data, 
@@ -602,7 +654,7 @@ export default function App() {
       
       {/* Modals & Popups */}
       {showIdCard && generatedStudent && <StudentIdCard student={generatedStudent} onClose={() => { setShowIdCard(false); setView('admin-dashboard'); setRegData({}); }} />}
-      {showTeacherIdCard && generatedTeacher && <TeacherIdCard teacher={generatedTeacher} onClose={() => { setShowTeacherIdCard(false); setView('admin-dashboard'); setRegData({}); }} />}
+      {showTeacherIdCard && generatedTeacher && <TeacherIdCard teacher={generatedTeacher} onClose={() => { setShowTeacherIdCard(false); setView('teachers-portal'); setRegData({}); }} />}
       {showScanner && <QrScannerModal onScanSuccess={handleScanSuccess} onClose={() => setShowScanner(false)} />}
       
       {/* Attendance Confirmation Modal */}
@@ -653,7 +705,7 @@ export default function App() {
             <h1 className="text-4xl font-bold text-gray-800 tracking-tight">Sleek School <span className="text-purple-600">Portal</span></h1>
             <p className="text-gray-600 max-w-md text-lg">Generate, manage, and distribute student results securely using School and Student IDs.</p>
             
-            <div className="grid grid-cols-1 md:grid-cols-5 gap-4 w-full max-w-6xl mt-8 px-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 w-full max-w-4xl mt-8 px-4">
               
               <button onClick={() => { resetForm(); setView('cbt-portal'); }} className="group p-6 bg-white border-2 border-indigo-100 rounded-2xl hover:border-indigo-500 hover:shadow-xl transition-all duration-300 text-left">
                 <div className="mb-4 text-indigo-600"><Laptop2 size={32} /></div>
@@ -673,19 +725,7 @@ export default function App() {
                 <p className="text-sm text-gray-500">Clock In/Out students.</p>
               </button>
 
-              <button onClick={() => { resetForm(); setView('create'); }} className="group p-6 bg-white border-2 border-purple-100 rounded-2xl hover:border-purple-500 hover:shadow-xl transition-all duration-300 text-left">
-                <div className="mb-4 text-purple-600"><FileText size={32} /></div>
-                <h3 className="text-xl font-bold text-gray-800 mb-1 group-hover:text-purple-700">Create Result</h3>
-                <p className="text-sm text-gray-500">Generate new result sheets.</p>
-              </button>
-              
-              <button onClick={() => { resetForm(); setView('admin-search'); }} className="group p-6 bg-white border-2 border-orange-100 rounded-2xl hover:border-orange-500 hover:shadow-xl transition-all duration-300 text-left">
-                <div className="mb-4 text-orange-600"><Edit size={32} /></div>
-                <h3 className="text-xl font-bold text-gray-800 mb-1 group-hover:text-orange-700">Edit Result</h3>
-                <p className="text-sm text-gray-500">Modify uploaded results.</p>
-              </button>
-
-              <button onClick={() => setView('admin-dashboard')} className="group p-6 bg-white border-2 border-red-100 rounded-2xl hover:border-red-500 hover:shadow-xl transition-all duration-300 text-left md:col-start-3">
+              <button onClick={() => setView('admin-dashboard')} className="group p-6 bg-white border-2 border-red-100 rounded-2xl hover:border-red-500 hover:shadow-xl transition-all duration-300 text-left">
                 <div className="mb-4 text-red-600"><ShieldAlert size={32} /></div>
                 <h3 className="text-xl font-bold text-gray-800 mb-1 group-hover:text-red-700">Admin</h3>
                 <p className="text-sm text-gray-500">Manage DB & Registers.</p>
@@ -700,7 +740,7 @@ export default function App() {
              <div className="max-w-5xl mx-auto bg-white shadow-lg rounded-xl overflow-hidden animate-slide-up">
              <div className={`${isEditing ? 'bg-orange-600' : 'bg-purple-700'} p-6 text-white flex justify-between items-center`}>
               <h2 className="text-2xl font-bold flex items-center gap-2">{isEditing ? <Edit /> : <FileText />} {isEditing ? "Edit Existing Result" : "Result Generator"}</h2>
-              <button onClick={() => setView('home')} className="text-white opacity-80 hover:opacity-100">Close</button>
+              <button onClick={() => setView('teachers-portal')} className="text-white opacity-80 hover:opacity-100">Close</button>
             </div>
             <div className="p-6 md:p-8 space-y-8">
               <div className="bg-gray-50 p-6 rounded-xl border border-gray-200 relative">
@@ -761,7 +801,19 @@ export default function App() {
                 </div>
                 <div className="overflow-x-auto rounded-lg border border-gray-200">
                   <table className="w-full text-sm text-left">
-                    <thead className="bg-gray-50 text-gray-700 font-bold uppercase"><tr><th className="px-4 py-3 min-w-[200px]">Subject</th><th className="px-2 py-3 w-20 text-center">CA1(20)</th><th className="px-2 py-3 w-20 text-center">CA2(20)</th><th className="px-2 py-3 w-20 text-center">Exam(60)</th><th className="px-2 py-3 w-20 text-center">Total</th><th className="px-2 py-3 w-20 text-center bg-gray-100">Avg</th><th className="px-2 py-3 w-20 text-center">Grade</th><th className="px-4 py-3 w-16"></th></tr></thead>
+                    <thead className="bg-gray-50 text-gray-700 font-bold uppercase">
+                      <tr>
+                        <th className="px-4 py-3 min-w-[200px]">Subject</th>
+                        <th className="px-2 py-3 w-16 text-center">CA 1</th>
+                        <th className="px-2 py-3 w-16 text-center">CA 2</th>
+                        <th className="px-2 py-3 w-16 text-center">CA 3</th>
+                        <th className="px-2 py-3 w-16 text-center">Exam</th>
+                        <th className="px-2 py-3 w-20 text-center">Total</th>
+                        <th className="px-2 py-3 w-20 text-center bg-gray-100">Avg</th>
+                        <th className="px-2 py-3 w-20 text-center">Grade</th>
+                        <th className="px-4 py-3 w-16"></th>
+                      </tr>
+                    </thead>
                     <tbody className="divide-y divide-gray-100">
                       {formData.subjects.map((sub, idx) => (
                         <tr key={idx} className="hover:bg-gray-50 transition-colors">
@@ -799,6 +851,7 @@ export default function App() {
                           </td>
                           <td className="px-2 py-2"><input type="number" value={sub.ca1} onChange={(e) => handleSubjectChange(idx, 'ca1', e.target.value)} className="w-full text-center bg-gray-50 rounded p-2 outline-none"/></td>
                           <td className="px-2 py-2"><input type="number" value={sub.ca2} onChange={(e) => handleSubjectChange(idx, 'ca2', e.target.value)} className="w-full text-center bg-gray-50 rounded p-2 outline-none"/></td>
+                          <td className="px-2 py-2"><input type="number" value={sub.ca3} onChange={(e) => handleSubjectChange(idx, 'ca3', e.target.value)} className="w-full text-center bg-gray-50 rounded p-2 outline-none"/></td>
                           <td className="px-2 py-2"><input type="number" value={sub.exam} onChange={(e) => handleSubjectChange(idx, 'exam', e.target.value)} className="w-full text-center bg-gray-50 rounded p-2 outline-none"/></td>
                           <td className="px-2 py-2 text-center font-bold text-gray-800">{sub.total}</td>
                           <td className="px-2 py-2"><input type="number" value={sub.average} onChange={(e) => handleSubjectChange(idx, 'average', e.target.value)} className="w-full text-center bg-gray-100 rounded p-2 outline-none text-gray-600"/></td>
@@ -889,10 +942,10 @@ export default function App() {
                 <h3 className="text-xl font-bold text-gray-800 mb-2">Register School</h3>
                 <p className="text-sm text-gray-500">Register new institution with Code and Logo.</p>
               </button>
-               <button onClick={() => { setRegData({}); setView('register-teacher'); }} className="bg-white p-8 rounded-xl shadow-md hover:shadow-xl transition-all border-2 border-transparent hover:border-yellow-500 text-left group">
+               <button onClick={() => setView('teachers-portal')} className="bg-white p-8 rounded-xl shadow-md hover:shadow-xl transition-all border-2 border-transparent hover:border-yellow-500 text-left group">
                 <div className="w-12 h-12 bg-yellow-100 text-yellow-600 rounded-full flex items-center justify-center mb-4 group-hover:bg-yellow-600 group-hover:text-white transition-colors"><GraduationCap size={24} /></div>
-                <h3 className="text-xl font-bold text-gray-800 mb-2">Register Teacher</h3>
-                <p className="text-sm text-gray-500">Create new teacher profile and ID card.</p>
+                <h3 className="text-xl font-bold text-gray-800 mb-2">Teachers Portal</h3>
+                <p className="text-sm text-gray-500">Register teachers, create and edit results.</p>
               </button>
               <div className="bg-white p-8 rounded-xl shadow-md border-2 border-purple-100 text-left">
                 <div className="w-12 h-12 bg-red-100 text-red-600 rounded-full flex items-center justify-center mb-4"><Database size={24} /></div>
@@ -905,6 +958,36 @@ export default function App() {
             </div>
           </div>
         )}
+
+        {view === 'teachers-portal' && (
+          <div className="max-w-4xl mx-auto space-y-8 animate-fade-in">
+             <div className="bg-yellow-600 text-white p-8 rounded-2xl shadow-lg flex justify-between items-center">
+              <div><h2 className="text-3xl font-bold flex items-center gap-2"><GraduationCap /> Teachers Portal</h2><p className="text-yellow-100 mt-1">Manage teacher profiles and student results.</p></div>
+              <button onClick={() => setView('admin-dashboard')} className="text-yellow-100 hover:text-white">Back to Admin</button>
+            </div>
+            
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <button onClick={() => { setRegData({}); setView('register-teacher'); }} className="bg-white p-6 rounded-xl shadow-md hover:shadow-xl transition-all border-2 border-transparent hover:border-yellow-500 text-left group">
+                    <div className="w-12 h-12 bg-yellow-100 text-yellow-600 rounded-full flex items-center justify-center mb-4 group-hover:bg-yellow-600 group-hover:text-white transition-colors"><User size={24} /></div>
+                    <h3 className="text-lg font-bold text-gray-800 mb-1">Register Teacher</h3>
+                    <p className="text-xs text-gray-500">Create new teacher profile and ID card.</p>
+                </button>
+
+                <button onClick={() => { resetForm(); setView('create'); }} className="bg-white p-6 rounded-xl shadow-md hover:shadow-xl transition-all border-2 border-transparent hover:border-purple-500 text-left group">
+                    <div className="w-12 h-12 bg-purple-100 text-purple-600 rounded-full flex items-center justify-center mb-4 group-hover:bg-purple-600 group-hover:text-white transition-colors"><FileText size={24} /></div>
+                    <h3 className="text-lg font-bold text-gray-800 mb-1">Create Result</h3>
+                    <p className="text-xs text-gray-500">Generate new result sheets.</p>
+                </button>
+
+                <button onClick={() => { resetForm(); setView('admin-search'); }} className="bg-white p-6 rounded-xl shadow-md hover:shadow-xl transition-all border-2 border-transparent hover:border-orange-500 text-left group">
+                    <div className="w-12 h-12 bg-orange-100 text-orange-600 rounded-full flex items-center justify-center mb-4 group-hover:bg-orange-600 group-hover:text-white transition-colors"><Edit size={24} /></div>
+                    <h3 className="text-lg font-bold text-gray-800 mb-1">Edit Result</h3>
+                    <p className="text-xs text-gray-500">Modify uploaded results.</p>
+                </button>
+            </div>
+          </div>
+        )}
+
         {view === 'register-student' && (
            <div className="max-w-2xl mx-auto bg-white p-8 rounded-2xl shadow-xl animate-slide-up">
             <h2 className="text-2xl font-bold text-blue-800 mb-6 flex items-center gap-2"><Users /> Student Registration</h2>
@@ -945,7 +1028,7 @@ export default function App() {
               </div>
               
               <div className="flex gap-4 pt-4">
-                <button onClick={() => setView('admin-dashboard')} className="flex-1 py-3 bg-gray-200 rounded text-gray-700 font-bold">Cancel</button>
+                <button onClick={() => setView('teachers-portal')} className="flex-1 py-3 bg-gray-200 rounded text-gray-700 font-bold">Cancel</button>
                 <button onClick={handleRegisterTeacher} disabled={loading} className="flex-1 py-3 bg-yellow-600 text-white rounded font-bold">{loading ? 'Registering...' : 'Generate Teacher ID'}</button>
               </div>
               {successMsg && <p className="text-green-600 text-center">{successMsg}</p>}
@@ -999,7 +1082,7 @@ export default function App() {
                 <button onClick={handleAdminLookup} disabled={loading} className="w-full py-3 bg-orange-600 text-white font-bold rounded-lg hover:bg-orange-700 transition-colors flex items-center justify-center gap-2">{loading ? <Loader2 className="animate-spin" size={18}/> : <Edit size={18} />}{loading ? "Verifying..." : "Verify & Edit"}</button>
                 {error && <p className="text-red-500 text-sm text-center font-medium bg-red-50 p-2 rounded">{error}</p>}
                 {successMsg && <p className="text-green-600 text-sm text-center font-medium bg-green-50 p-2 rounded">{successMsg}</p>}
-                <button onClick={() => setView('home')} className="w-full text-sm text-gray-400 hover:text-gray-600 mt-2">Cancel</button>
+                <button onClick={() => setView('teachers-portal')} className="w-full text-sm text-gray-400 hover:text-gray-600 mt-2">Cancel</button>
               </div>
             </div>
           </div>

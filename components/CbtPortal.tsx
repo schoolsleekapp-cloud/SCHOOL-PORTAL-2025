@@ -833,13 +833,14 @@ const CbtPortal: React.FC<CbtPortalProps> = ({ onBack }) => {
           const s = subjects[subIndex];
           const ca1 = Number(s.ca1) || 0;
           const ca2 = Number(s.ca2) || 0;
+          const ca3 = Number(s.ca3) || 0; // Added CA3 calculation
           const exam = Number(s.exam) || 0;
-          subjects[subIndex].total = ca1 + ca2 + exam; 
+          subjects[subIndex].total = ca1 + ca2 + ca3 + exam; 
         } else {
           const newSub: any = {
             name: activeAssessment.subject,
             selectedSubject: activeAssessment.subject,
-            ca1: 0, ca2: 0, exam: 0, total: finalScore, average: 0, grade: '', remark: ''
+            ca1: 0, ca2: 0, ca3: 0, exam: 0, total: finalScore, average: 0, grade: '', remark: ''
           };
           newSub[activeAssessment.type] = finalScore;
           subjects.push(newSub as Subject);
@@ -1265,6 +1266,7 @@ const CbtPortal: React.FC<CbtPortalProps> = ({ onBack }) => {
                 >
                    <option value="ca1">Assessment 1 (CA1)</option>
                    <option value="ca2">Assessment 2 (CA2)</option>
+                   <option value="ca3">Assessment 3 (CA3)</option>
                    <option value="exam">Examination</option>
                 </select>
              </div>

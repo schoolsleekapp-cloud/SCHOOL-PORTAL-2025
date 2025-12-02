@@ -161,8 +161,9 @@ const ResultTemplate: React.FC<ResultTemplateProps> = ({ data, showDownloads = f
               <thead>
                 <tr style={{ borderBottomColor: themeColor }} className="border-b-2 text-xs uppercase tracking-wider text-gray-600">
                   <th className="py-1">Subject</th>
-                  <th className="py-1 text-center">CA1</th>
-                  <th className="py-1 text-center">CA2</th>
+                  <th className="py-1 text-center">CA 1</th>
+                  <th className="py-1 text-center">CA 2</th>
+                  <th className="py-1 text-center">CA 3</th>
                   <th className="py-1 text-center">Exam</th>
                   <th className="py-1 text-center">Total</th>
                   <th className="py-1 text-center">Avg</th>
@@ -176,6 +177,7 @@ const ResultTemplate: React.FC<ResultTemplateProps> = ({ data, showDownloads = f
                     <td className="py-1 font-medium truncate max-w-[150px]">{sub.name}</td>
                     <td className="py-1 text-center text-gray-500">{sub.ca1 || 0}</td>
                     <td className="py-1 text-center text-gray-500">{sub.ca2 || 0}</td>
+                    <td className="py-1 text-center text-gray-500">{sub.ca3 || 0}</td>
                     <td className="py-1 text-center text-gray-500">{sub.exam}</td>
                     <td className="py-1 text-center font-bold text-black">{sub.total}</td>
                     <td className="py-1 text-center text-gray-500">{sub.average || '-'}</td>

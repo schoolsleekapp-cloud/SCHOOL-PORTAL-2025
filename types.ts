@@ -4,6 +4,7 @@ export interface Subject {
   name: string;
   ca1: number | string;
   ca2: number | string;
+  ca3: number | string;
   exam: number | string;
   total: number;
   average: number;
@@ -112,7 +113,7 @@ export interface Question {
   image?: string; // Base64 string for diagrams/drawings
 }
 
-export type AssessmentType = 'ca1' | 'ca2' | 'exam';
+export type AssessmentType = 'ca1' | 'ca2' | 'ca3' | 'exam';
 
 export interface CbtAssessment {
   id?: string;
@@ -145,4 +146,4 @@ export interface ExamLog {
   type: string;
 }
 
-export type ViewState = 'home' | 'create' | 'view-result' | 'admin-dashboard' | 'register-student' | 'register-school' | 'register-teacher' | 'super-admin-view' | 'admin-search' | 'attendance' | 'cbt-portal';
+export type ViewState = 'home' | 'create' | 'view-result' | 'admin-dashboard' | 'register-student' | 'register-school' | 'register-teacher' | 'super-admin-view' | 'admin-search' | 'attendance' | 'cbt-portal' | 'teachers-portal';
