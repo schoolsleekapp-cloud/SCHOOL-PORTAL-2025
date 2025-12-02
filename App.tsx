@@ -5,7 +5,7 @@ import {
   School, FileText, Search, ShieldAlert, Edit, Users, Building2, 
   Database, Plus, Trash2, Trophy, Activity, 
   Sparkles, Loader2, Eye, ArrowLeft, RefreshCw, KeyRound, CheckCircle, Palette, Phone, Mail, MapPin, Clock, Star, UserCog,
-  Upload, QrCode, GraduationCap, Lock, House, LayoutDashboard, UserCheck, CreditCard, LogIn, LogOut, CalendarCheck, Calendar, ChevronLeft, ChevronRight, FileDown, Laptop2, BrainCircuit, X, User, BarChart3, Settings, ShieldCheck, UserPlus
+  Upload, QrCode, GraduationCap, Lock, House, LayoutDashboard, UserCheck, CreditCard, LogIn, LogOut, CalendarCheck, Calendar, ChevronLeft, ChevronRight, FileDown, Laptop2, BrainCircuit, X, User, BarChart3, Settings, ShieldCheck, UserPlus, Filter, ArrowUpDown
 } from 'lucide-react';
 import { collection, addDoc, query, where, getDocs, doc, updateDoc, orderBy, deleteDoc } from 'firebase/firestore';
 
@@ -17,7 +17,7 @@ import TeacherIdCard from './components/TeacherIdCard';
 import QrScannerModal from './components/QrScannerModal';
 import IdCardManager from './components/IdCardManager';
 import CbtPortal from './components/CbtPortal'; // Import CBT Portal
-import { ResultData, Subject, SchoolData, StudentData, ViewState, TeacherData, AttendanceLog, CbtAssessment, SchoolAdminProfile } from './types';
+import { ResultData, Subject, SchoolData, StudentData, ViewState, TeacherData, AttendanceLog, CbtAssessment, SchoolAdminProfile, SuperAdminProfile } from './types';
 import { 
   THEME_COLORS, AFFECTIVE_TRAITS, PSYCHOMOTOR_SKILLS, COGNITIVE_TRAITS,
   ALL_NIGERIAN_SUBJECTS, CLASS_LEVELS, TEACHER_SECRET_CODE, SUPER_ADMIN_KEY, APP_ID 
@@ -37,12 +37,20 @@ export default function App() {
   
   // Super Admin Data
   const [superAdminKey, setSuperAdminKey] = useState('');
-  const [adminTab, setAdminTab] = useState<'overview' | 'schools' | 'students' | 'teachers' | 'results' | 'id_cards'>('overview');
+  const [adminTab, setAdminTab] = useState<'overview' | 'schools' | 'students' | 'teachers' | 'results' | 'id_cards' | 'admins'>('overview');
   const [allSchools, setAllSchools] = useState<SchoolData[]>([]);
   const [allStudents, setAllStudents] = useState<StudentData[]>([]);
   const [allTeachers, setAllTeachers] = useState<TeacherData[]>([]);
   const [allResults, setAllResults] = useState<ResultData[]>([]);
-  const [masterSearch, setMasterSearch] = useState('');
+  const [superAdmins, setSuperAdmins] = useState<SuperAdminProfile[]>([]);
+  
+  // Edit Modals State
+  const [editingSchool, setEditingSchool] = useState<SchoolData | null>(null);
+  const [editingStudent, setEditingStudent] = useState<StudentData | null>(null);
+  const [newSuperAdmin, setNewSuperAdmin] = useState({ name: '', email: '', key: '' });
+
+  // Filter & Sort State
+  const [filterConfig, setFilterConfig] = useState({ search: '', sort: 'newest', filter: 'all' });
 
   // School Admin State
   const [currentSchool, setCurrentSchool] = useState<SchoolData | null>(null);
@@ -123,12 +131,12 @@ export default function App() {
                 // Fetch Students
                 const qS = query(collection(db, 'Student Data'), where('schoolId', '==', currentSchool.schoolId));
                 const snapS = await getDocs(qS);
-                const students = snapS.docs.map(d => d.data() as StudentData);
+                const students = snapS.docs.map(d => ({id: d.id, ...d.data()} as StudentData));
 
                 // Fetch Recent Results (limit 20 for performance)
                 const qR = query(collection(db, 'Result Data'), where('schoolId', '==', currentSchool.schoolId));
                 const snapR = await getDocs(qR);
-                const results = snapR.docs.map(d => d.data() as ResultData);
+                const results = snapR.docs.map(d => ({id: d.id, ...d.data()} as ResultData));
 
                 // Fetch Attendance
                 const qA = query(collection(db, 'Attendance Data'), where('schoolId', '==', currentSchool.schoolId));
@@ -215,6 +223,131 @@ export default function App() {
     setAdminQuery({ schoolId: '', studentId: '', teacherCode: '' });
     setSchoolLogin({ id: '', password: '' });
     setEditingTeacher(null);
+    setEditingSchool(null);
+    setEditingStudent(null);
+    setFilterConfig({ search: '', sort: 'newest', filter: 'all' });
+  };
+
+  // --- FILTER & SORT HELPER ---
+  const filterAndSortData = (data: any[], type: 'school' | 'student' | 'teacher' | 'result' | 'exam') => {
+      let filtered = [...data];
+
+      // 1. Search
+      if (filterConfig.search) {
+          const lowerQ = filterConfig.search.toLowerCase();
+          filtered = filtered.filter(item => {
+              if (type === 'school') return item.schoolName?.toLowerCase().includes(lowerQ) || item.schoolId?.toLowerCase().includes(lowerQ);
+              if (type === 'student') return item.studentName?.toLowerCase().includes(lowerQ) || item.admissionNumber?.toLowerCase().includes(lowerQ);
+              if (type === 'teacher') return item.teacherName?.toLowerCase().includes(lowerQ) || item.generatedId?.toLowerCase().includes(lowerQ);
+              if (type === 'result') return item.studentName?.toLowerCase().includes(lowerQ) || item.admissionNumber?.toLowerCase().includes(lowerQ);
+              if (type === 'exam') return item.subject?.toLowerCase().includes(lowerQ) || item.examCode?.toLowerCase().includes(lowerQ);
+              return false;
+          });
+      }
+
+      // 2. Filter (Category/Class)
+      if (filterConfig.filter !== 'all') {
+          filtered = filtered.filter(item => {
+             // For Students/Results - filter by ClassLevel
+             if ((type === 'student' || type === 'result') && item.classLevel) {
+                 return item.classLevel === filterConfig.filter;
+             }
+             // For Exams - filter by Type
+             if (type === 'exam' && item.type) {
+                 return item.type === filterConfig.filter;
+             }
+             return true;
+          });
+      }
+
+      // 3. Sort
+      filtered.sort((a, b) => {
+          if (filterConfig.sort === 'newest') {
+              return (new Date(b.createdAt || 0).getTime()) - (new Date(a.createdAt || 0).getTime());
+          }
+          if (filterConfig.sort === 'oldest') {
+               return (new Date(a.createdAt || 0).getTime()) - (new Date(b.createdAt || 0).getTime());
+          }
+          if (filterConfig.sort === 'name_asc') {
+               const nameA = a.studentName || a.schoolName || a.teacherName || a.subject || '';
+               const nameB = b.studentName || b.schoolName || b.teacherName || b.subject || '';
+               return nameA.localeCompare(nameB);
+          }
+           if (filterConfig.sort === 'name_desc') {
+               const nameA = a.studentName || a.schoolName || a.teacherName || a.subject || '';
+               const nameB = b.studentName || b.schoolName || b.teacherName || b.subject || '';
+               return nameB.localeCompare(nameA);
+          }
+          return 0;
+      });
+
+      return filtered;
+  };
+
+  const handleUpdateSchool = async () => {
+    if (!editingSchool || !editingSchool.id) return;
+    setLoading(true);
+    try {
+        const docRef = doc(db, 'School Data', editingSchool.id);
+        await updateDoc(docRef, { ...editingSchool });
+        setSuccessMsg("School Updated Successfully!");
+        setAllSchools(prev => prev.map(s => s.id === editingSchool.id ? editingSchool : s));
+        setEditingSchool(null);
+    } catch (err) {
+        console.error(err);
+        setError("Failed to update school.");
+    } finally {
+        setLoading(false);
+    }
+  };
+
+  const handleUpdateStudent = async () => {
+      if (!editingStudent || !editingStudent.id) return;
+      setLoading(true);
+      try {
+          const docRef = doc(db, 'Student Data', editingStudent.id);
+          await updateDoc(docRef, { ...editingStudent });
+          setSuccessMsg("Student Updated Successfully!");
+          // Update local state in both dashboards
+          setAllStudents(prev => prev.map(s => s.id === editingStudent.id ? editingStudent : s));
+          setSchoolData(prev => ({
+              ...prev,
+              students: prev.students.map(s => s.id === editingStudent.id ? editingStudent : s)
+          }));
+          setEditingStudent(null);
+      } catch (err) {
+          console.error(err);
+          setError("Failed to update student.");
+      } finally {
+          setLoading(false);
+      }
+  };
+
+  const handleEditResult = (result: ResultData) => {
+      // Populate Form
+      const enhancedSubjects = (result.subjects || []).map(s => ({ 
+          ...s, 
+          ca1: s.ca1 === undefined ? '' : s.ca1, 
+          ca2: s.ca2 === undefined ? '' : s.ca2, 
+          ca3: s.ca3 === undefined ? '' : s.ca3, 
+          exam: s.exam === undefined ? '' : s.exam, 
+          average: s.average || 0, 
+          selectedSubject: ALL_NIGERIAN_SUBJECTS.includes(s.name) ? s.name : 'Others' 
+      })); 
+      
+      setFormData({ 
+          ...result, 
+          subjects: enhancedSubjects, 
+          attendance: result.attendance || { present: 0, total: 0 }, 
+          affective: result.affective || AFFECTIVE_TRAITS.map(t => ({ name: t, rating: 3 })), 
+          psychomotor: result.psychomotor || PSYCHOMOTOR_SKILLS.map(t => ({ name: t, rating: 3 })),
+          cognitive: result.cognitive || COGNITIVE_TRAITS.map(t => ({ name: t, rating: 3 })) 
+      }); 
+      
+      setEditDocId(result.id || null);
+      setIsEditing(true); 
+      setView('create'); 
+      setSuccessMsg("Loaded result for editing.");
   };
 
   const handleUpdateTeacher = async () => {
@@ -229,11 +362,11 @@ export default function App() {
           });
           setSuccessMsg("Teacher details updated successfully!");
           
-          // Refresh list locally
           setSchoolData(prev => ({
               ...prev,
               teachers: prev.teachers.map(t => t.id === editingTeacher.id ? editingTeacher : t)
           }));
+          setAllTeachers(prev => prev.map(t => t.id === editingTeacher.id ? editingTeacher : t));
           
           setEditingTeacher(null);
       } catch (err) {
@@ -254,6 +387,7 @@ export default function App() {
               ...prev,
               teachers: prev.teachers.filter(t => t.id !== teacherId)
           }));
+          setAllTeachers(prev => prev.filter(t => t.id !== teacherId));
       } catch (err) {
           console.error(err);
           setError("Failed to delete teacher.");
@@ -305,6 +439,37 @@ export default function App() {
       } finally {
           setLoading(false);
       }
+  };
+
+  // Super Admin Management
+  const handleAddSuperAdmin = async () => {
+     if(!newSuperAdmin.name || !newSuperAdmin.key) { setError("Name and Key are required"); return; }
+     setLoading(true);
+     try {
+         const newAdmin: SuperAdminProfile = {
+             name: newSuperAdmin.name,
+             email: newSuperAdmin.email,
+             key: newSuperAdmin.key,
+             createdAt: new Date().toISOString()
+         };
+         const docRef = await addDoc(collection(db, 'SuperAdmins'), newAdmin);
+         setSuperAdmins(prev => [...prev, { ...newAdmin, id: docRef.id }]);
+         setNewSuperAdmin({ name: '', email: '', key: '' });
+         setSuccessMsg("Super Admin Added.");
+     } catch (err) {
+         console.error(err);
+         setError("Failed to add Super Admin.");
+     } finally { setLoading(false); }
+  };
+
+  const handleDeleteSuperAdmin = async (id: string) => {
+      if (!window.confirm("Revoke Super Admin access?")) return;
+      setLoading(true);
+      try {
+          await deleteDoc(doc(db, 'SuperAdmins', id));
+          setSuperAdmins(prev => prev.filter(a => a.id !== id));
+          setSuccessMsg("Super Admin Removed.");
+      } catch (err) { setError("Failed to remove."); } finally { setLoading(false); }
   };
 
   const handleConfirmAttendance = async () => {
@@ -385,7 +550,6 @@ export default function App() {
   };
 
   const handleDownloadAttendanceReport = () => {
-    // ... existing implementation
     if (!attendanceReport || !window.html2pdf || !attendancePrintRef.current) return;
     
     const element = attendancePrintRef.current;
@@ -402,7 +566,6 @@ export default function App() {
   };
 
   const handleScanSuccess = async (decodedText: string) => {
-    // ... existing implementation
     setShowScanner(false);
     try {
         const data = JSON.parse(decodedText);
@@ -548,7 +711,6 @@ export default function App() {
   };
 
   const handlePublish = async () => {
-      // ... existing implementation
     setLoading(true);
     try {
       const teacherCode = formData.teacherId.trim();
@@ -605,7 +767,6 @@ export default function App() {
   const handleAutoFillSchool = async () => { if (!formData.schoolId) return; setSuccessMsg("Checking School Database..."); try { const q = query(collection(db, 'School Data'), where("schoolId", "==", formData.schoolId.trim())); const querySnapshot = await getDocs(q); if (!querySnapshot.empty) { const schoolData = querySnapshot.docs[0].data() as SchoolData; setFormData(prev => ({ ...prev, schoolName: schoolData.schoolName || prev.schoolName, schoolLogo: schoolData.schoolLogo || prev.schoolLogo, schoolEmail: schoolData.schoolEmail || prev.schoolEmail, schoolPhone: schoolData.schoolPhone || prev.schoolPhone, schoolAddress: schoolData.schoolAddress || prev.schoolAddress, })); setSuccessMsg("School details loaded automatically!"); } else { setSuccessMsg(""); } } catch (err) { console.error(err); setSuccessMsg(""); } setTimeout(() => setSuccessMsg(''), 2000); };
   
   const handleAutoFillStudent = async () => {
-    // ... existing implementation
     if (!formData.schoolId || !formData.admissionNumber) return;
     setSuccessMsg("Checking Student Database...");
     
@@ -655,10 +816,9 @@ export default function App() {
     setTimeout(() => setSuccessMsg(''), 2000);
   };
 
-  const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => { const file = e.target.files?.[0]; if (file) { if (file.size > 500000) { setError("Image file is too large. Please use an image under 500KB."); return; } const reader = new FileReader(); reader.onloadend = () => { const result = reader.result as string; setFormData(prev => ({ ...prev, schoolLogo: result })); setRegData(prev => ({ ...prev, schoolLogo: result })); }; reader.readAsDataURL(file); } };
+  const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => { const file = e.target.files?.[0]; if (file) { if (file.size > 500000) { setError("Image file is too large. Please use an image under 500KB."); return; } const reader = new FileReader(); reader.onloadend = () => { const result = reader.result as string; setFormData(prev => ({ ...prev, schoolLogo: result })); setRegData(prev => ({ ...prev, schoolLogo: result })); setEditingSchool(prev => prev ? ({ ...prev, schoolLogo: result }) : null); }; reader.readAsDataURL(file); } };
   
   const handleSubjectChange = (index: number, field: keyof Subject, value: string | number) => { 
-      // ... existing implementation
       const newSubjects = [...formData.subjects]; 
       const subject = { ...newSubjects[index] }; 
       if (field === 'selectedSubject') { 
@@ -868,7 +1028,6 @@ export default function App() {
   };
 
   const handleAdminLookup = async () => { 
-      // ... existing implementation
       if (!adminQuery.schoolId || !adminQuery.studentId || !adminQuery.teacherCode) { setError("All fields are required."); return; } 
       setLoading(true); setError(''); 
       try { 
@@ -883,56 +1042,167 @@ export default function App() {
               else if (data.teacherId === adminQuery.teacherCode) isAuthorized = true; 
               if (!isAuthorized) { setError("Access Denied: Teacher ID does not match the record owner."); setLoading(false); return; } 
               
-              const enhancedSubjects = (data.subjects || []).map(s => ({ 
-                  ...s, 
-                  ca1: s.ca1 === undefined ? '' : s.ca1, 
-                  ca2: s.ca2 === undefined ? '' : s.ca2, 
-                  ca3: s.ca3 === undefined ? '' : s.ca3, 
-                  exam: s.exam === undefined ? '' : s.exam, 
-                  average: s.average || 0, 
-                  selectedSubject: ALL_NIGERIAN_SUBJECTS.includes(s.name) ? s.name : 'Others' 
-              })); 
-              
-              setFormData({ 
-                  ...data, 
-                  subjects: enhancedSubjects, 
-                  attendance: data.attendance || { present: 0, total: 0 }, 
-                  affective: data.affective || AFFECTIVE_TRAITS.map(t => ({ name: t, rating: 3 })), 
-                  psychomotor: data.psychomotor || PSYCHOMOTOR_SKILLS.map(t => ({ name: t, rating: 3 })),
-                  cognitive: data.cognitive || COGNITIVE_TRAITS.map(t => ({ name: t, rating: 3 })) // Populate Cognitive from DB or default
-              }); 
-              
-              setEditDocId(docSnap.id); 
-              setIsEditing(true); 
-              setSuccessMsg("Result verified! Entering Edit Mode..."); 
-              setTimeout(() => { setView('create'); setSuccessMsg(''); }, 1500); 
+              handleEditResult(data);
           } 
       } catch (err: any) { setError("Error looking up result."); } finally { setLoading(false); } 
     };
-  const handleSuperAdminAccess = async () => { if (superAdminKey !== SUPER_ADMIN_KEY) { setError("Invalid Access Credentials."); return; } setLoading(true); setError(''); try { const [res, sch, stu, tch] = await Promise.all([ getDocs(collection(db, 'Result Data')), getDocs(collection(db, 'School Data')), getDocs(collection(db, 'Student Data')), getDocs(collection(db, 'Teacher Data')) ]); setAllResults(res.docs.map(d => d.data() as ResultData)); setAllSchools(sch.docs.map(d => d.data() as SchoolData)); setAllStudents(stu.docs.map(d => d.data() as StudentData)); setAllTeachers(tch.docs.map(d => d.data() as TeacherData)); setView('super-admin-view'); setAdminTab('overview'); } catch(err: any) { console.error(err); setError("Failed to fetch database. Check internet connection."); } finally { setLoading(false); } };
+
+  const handleSuperAdminAccess = async () => { 
+      setLoading(true); setError(''); 
+      let authorized = false;
+
+      // 1. Check Hardcoded Key
+      if (superAdminKey === SUPER_ADMIN_KEY) {
+          authorized = true;
+      } else {
+          // 2. Check Database
+          try {
+              const q = query(collection(db, 'SuperAdmins'), where('key', '==', superAdminKey));
+              const snap = await getDocs(q);
+              if(!snap.empty) authorized = true;
+          } catch(err) {
+              console.error(err);
+          }
+      }
+
+      if (authorized) {
+           try { 
+              const [res, sch, stu, tch, adm] = await Promise.all([ 
+                  getDocs(collection(db, 'Result Data')), 
+                  getDocs(collection(db, 'School Data')), 
+                  getDocs(collection(db, 'Student Data')), 
+                  getDocs(collection(db, 'Teacher Data')),
+                  getDocs(collection(db, 'SuperAdmins'))
+              ]); 
+              setAllResults(res.docs.map(d => ({id: d.id, ...d.data()} as ResultData))); 
+              setAllSchools(sch.docs.map(d => ({id: d.id, ...d.data()} as SchoolData))); 
+              setAllStudents(stu.docs.map(d => ({id: d.id, ...d.data()} as StudentData))); 
+              setAllTeachers(tch.docs.map(d => ({id: d.id, ...d.data()} as TeacherData))); 
+              setSuperAdmins(adm.docs.map(d => ({id: d.id, ...d.data()} as SuperAdminProfile)));
+              
+              setView('super-admin-view'); 
+              setAdminTab('overview'); 
+          } catch(err: any) { 
+              console.error(err); 
+              setError("Failed to fetch database. Check internet connection."); 
+          } 
+      } else {
+          setError("Invalid Access Credentials."); 
+      }
+      setLoading(false); 
+  };
+
   const getDaysInMonth = (date: Date) => { const year = date.getFullYear(); const month = date.getMonth(); const days = new Date(year, month + 1, 0).getDate(); return Array.from({ length: days }, (_, i) => { const d = new Date(year, month, i + 1); return { date: d, iso: d.toISOString().split('T')[0], dayNum: i + 1, isWeekend: d.getDay() === 0 || d.getDay() === 6 }; }); };
   const renderAttendanceView = () => { return ( <div className="max-w-2xl mx-auto bg-white p-8 rounded-2xl shadow-xl animate-slide-up text-center"> <h2 className="text-3xl font-bold text-gray-800 mb-6 flex items-center justify-center gap-2"><CalendarCheck className="text-purple-600" /> Class Attendance</h2> <div className="mb-8"> <p className="text-gray-500 mb-4">Select an action below.</p> <div className="grid grid-cols-1 md:grid-cols-3 gap-4"> <button onClick={() => { setScannerContext('attendance_in'); setShowScanner(true); setError(''); setSuccessMsg(''); setAttendanceStatus(null); setAttendanceReport(null); setSelectedDateLog(null); }} className="flex flex-col items-center justify-center p-5 bg-green-50 border-2 border-green-200 rounded-2xl hover:bg-green-100 hover:border-green-500 transition-all group"> <LogIn size={32} className="text-green-600 mb-1 group-hover:scale-110 transition-transform" /> <span className="text-lg font-bold text-green-700">Clock In</span> </button> <button onClick={() => { setScannerContext('attendance_out'); setShowScanner(true); setError(''); setSuccessMsg(''); setAttendanceStatus(null); setAttendanceReport(null); setSelectedDateLog(null); }} className="flex flex-col items-center justify-center p-5 bg-red-50 border-2 border-red-200 rounded-2xl hover:bg-red-100 hover:border-red-500 transition-all group"> <LogOut size={32} className="text-red-600 mb-1 group-hover:scale-110 transition-transform" /> <span className="text-lg font-bold text-red-700">Clock Out</span> </button> <button onClick={() => { setScannerContext('check_attendance'); setShowScanner(true); setError(''); setSuccessMsg(''); setAttendanceStatus(null); setAttendanceReport(null); setSelectedDateLog(null); }} className="flex flex-col items-center justify-center p-5 bg-blue-50 border-2 border-blue-200 rounded-2xl hover:bg-blue-100 hover:border-blue-500 transition-all group"> <Calendar size={32} className="text-blue-600 mb-1 group-hover:scale-110 transition-transform" /> <span className="text-lg font-bold text-blue-700">Check Report</span> </button> </div> </div> {attendanceStatus && (<div className={`p-6 rounded-xl border-2 animate-fade-in ${attendanceStatus.type === 'in' ? 'bg-green-50 border-green-200 text-green-800' : 'bg-red-50 border-red-200 text-red-800'}`}><div className="text-5xl mb-2">{attendanceStatus.type === 'in' ? '👋' : '🏠'}</div><h3 className="text-2xl font-bold">{attendanceStatus.name}</h3><p className="text-lg font-medium">{attendanceStatus.type === 'in' ? 'Clocked IN' : 'Clocked OUT'} at <span className="font-mono font-bold bg-white/50 px-2 rounded">{attendanceStatus.time}</span></p></div>)} {attendanceReport && ( <div className="mt-8 border-t pt-8 animate-fade-in"> <div className="bg-gray-50 p-4 rounded-xl mb-6 flex flex-wrap gap-4 items-end justify-center border border-gray-100"> <div> <label className="text-xs font-bold text-gray-500 block mb-1">Start Date</label> <input type="date" value={reportStartDate} onChange={e => setReportStartDate(e.target.value)} className="p-2 border rounded text-sm w-36 outline-none focus:ring-1 focus:ring-purple-500 bg-white"/> </div> <div> <label className="text-xs font-bold text-gray-500 block mb-1">End Date</label> <input type="date" value={reportEndDate} onChange={e => setReportEndDate(e.target.value)} className="p-2 border rounded text-sm w-36 outline-none focus:ring-1 focus:ring-purple-500 bg-white"/> </div> <button onClick={handleDownloadAttendanceReport} className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 h-[38px] transition shadow-md"> <FileDown size={18}/> Download PDF </button> </div> <div className="grid grid-cols-7 gap-1 mb-2 text-xs font-bold text-gray-400"><div>Sun</div><div>Mon</div><div>Tue</div><div>Wed</div><div>Thu</div><div>Fri</div><div>Sat</div></div> <div className="grid grid-cols-7 gap-1"> {getDaysInMonth(reportMonth).map((d) => { const log = attendanceReport.logs.find(log => log.date === d.iso); const isLogged = !!log; return (<div key={d.dayNum} onClick={() => { if(isLogged) setSelectedDateLog(log || null); }} className={`aspect-square flex items-center justify-center rounded-lg text-sm font-bold relative group ${isLogged ? 'bg-green-500 text-white cursor-pointer' : 'bg-gray-50 text-gray-400'}`}>{d.dayNum}</div>); })} </div> </div> )} {selectedDateLog && ( <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4 animate-fade-in" onClick={() => setSelectedDateLog(null)}> <div className="bg-white p-6 rounded-2xl shadow-2xl max-w-sm w-full m-4 relative" onClick={e => e.stopPropagation()}> <button onClick={() => setSelectedDateLog(null)} className="absolute top-4 right-4 text-gray-400 hover:text-gray-600">✕</button> <h3 className="font-bold text-xl text-gray-800 mb-1">Attendance Details</h3> <p className="text-sm text-gray-500 mb-6 font-medium">{selectedDateLog.date}</p> <div className="space-y-4"><div className="bg-green-50 p-4 rounded-xl border border-green-100"><p className="text-2xl font-mono font-bold text-green-900 mb-2">{selectedDateLog.clockInTime || '---'}</p><div className="text-sm text-green-800 bg-white/60 p-2 rounded-lg"><div className="flex gap-1 mb-1"><span className="font-semibold text-green-900 w-16">Guardian:</span> <span>{selectedDateLog.dropOffGuardian || 'N/A'}</span></div></div></div><div className="bg-red-50 p-4 rounded-xl border border-red-100"><p className="text-2xl font-mono font-bold text-red-900 mb-2">{selectedDateLog.clockOutTime || '---'}</p><div className="text-sm text-red-800 bg-white/60 p-2 rounded-lg"><div className="flex gap-1 mb-1"><span className="font-semibold text-red-900 w-16">Guardian:</span> <span>{selectedDateLog.pickUpGuardian || 'N/A'}</span></div></div></div></div> </div> </div> )} <button onClick={() => setView('home')} className="mt-8 text-gray-500 hover:text-gray-800 font-medium">Back to Home</button> </div> ); };
   
+  // Reusable Filter Toolbar
+  const renderFilterToolbar = () => (
+      <div className="bg-gray-50 p-4 rounded-xl border border-gray-200 mb-4 flex flex-col md:flex-row gap-4 items-center">
+          <div className="relative w-full md:flex-1">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16}/>
+              <input 
+                  type="text" 
+                  placeholder="Search records..." 
+                  className="w-full pl-9 pr-4 py-2 border rounded-lg text-sm outline-none focus:ring-1 focus:ring-purple-500"
+                  value={filterConfig.search}
+                  onChange={e => setFilterConfig({...filterConfig, search: e.target.value})}
+              />
+          </div>
+          <div className="flex gap-2 w-full md:w-auto">
+              <div className="relative flex-1 md:flex-none">
+                  <Filter className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={14}/>
+                  <select 
+                      className="w-full pl-9 pr-8 py-2 border rounded-lg text-sm bg-white outline-none cursor-pointer appearance-none"
+                      value={filterConfig.filter}
+                      onChange={e => setFilterConfig({...filterConfig, filter: e.target.value})}
+                  >
+                      <option value="all">All Categories</option>
+                      {CLASS_LEVELS.map(c => <option key={c} value={c}>{c}</option>)}
+                      <option value="ca1">CA1</option>
+                      <option value="ca2">CA2</option>
+                      <option value="exam">Exam</option>
+                  </select>
+              </div>
+              <div className="relative flex-1 md:flex-none">
+                  <ArrowUpDown className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={14}/>
+                  <select 
+                      className="w-full pl-9 pr-8 py-2 border rounded-lg text-sm bg-white outline-none cursor-pointer appearance-none"
+                      value={filterConfig.sort}
+                      onChange={e => setFilterConfig({...filterConfig, sort: e.target.value})}
+                  >
+                      <option value="newest">Newest First</option>
+                      <option value="oldest">Oldest First</option>
+                      <option value="name_asc">Name (A-Z)</option>
+                      <option value="name_desc">Name (Z-A)</option>
+                  </select>
+              </div>
+          </div>
+      </div>
+  );
+
   const renderSuperAdminView = () => {
-    // Define tabs configuration
     const tabs = [
-        { id: 'overview', label: 'Overview', icon: LayoutDashboard, color: 'bg-indigo-600', hover: 'hover:bg-indigo-700', light: 'bg-indigo-50', text: 'text-indigo-700' },
-        { id: 'schools', label: 'Schools', icon: School, color: 'bg-orange-600', hover: 'hover:bg-orange-700', light: 'bg-orange-50', text: 'text-orange-700' },
-        { id: 'students', label: 'Students', icon: Users, color: 'bg-blue-600', hover: 'hover:bg-blue-700', light: 'bg-blue-50', text: 'text-blue-700' },
-        { id: 'teachers', label: 'Teachers', icon: GraduationCap, color: 'bg-yellow-600', hover: 'hover:bg-yellow-700', light: 'bg-yellow-50', text: 'text-yellow-700' },
-        { id: 'results', label: 'Results', icon: FileText, color: 'bg-purple-600', hover: 'hover:bg-purple-700', light: 'bg-purple-50', text: 'text-purple-700' },
-        { id: 'id_cards', label: 'ID Cards', icon: CreditCard, color: 'bg-emerald-600', hover: 'hover:bg-emerald-700', light: 'bg-emerald-50', text: 'text-emerald-700' },
+        { id: 'overview', label: 'Overview', icon: LayoutDashboard, color: 'bg-indigo-600' },
+        { id: 'schools', label: 'Schools', icon: School, color: 'bg-orange-600' },
+        { id: 'students', label: 'Students', icon: Users, color: 'bg-blue-600' },
+        { id: 'teachers', label: 'Teachers', icon: GraduationCap, color: 'bg-yellow-600' },
+        { id: 'results', label: 'Results', icon: FileText, color: 'bg-purple-600' },
+        { id: 'id_cards', label: 'ID Cards', icon: CreditCard, color: 'bg-emerald-600' },
+        { id: 'admins', label: 'Admins', icon: ShieldCheck, color: 'bg-red-600' },
     ];
 
     return (
-        <div className="max-w-7xl mx-auto animate-fade-in flex flex-col md:flex-row gap-6">
-            {/* Left Sidebar */}
+        <div className="max-w-7xl mx-auto animate-fade-in flex flex-col md:flex-row gap-6 relative">
+            {/* Edit School Modal */}
+            {editingSchool && (
+                <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-fade-in">
+                    <div className="bg-white rounded-xl shadow-xl p-6 max-w-lg w-full">
+                        <h3 className="text-xl font-bold mb-4">Edit School</h3>
+                        <div className="space-y-3">
+                            <input className="w-full p-2 border rounded" placeholder="School Name" value={editingSchool.schoolName} onChange={e => setEditingSchool({...editingSchool, schoolName: e.target.value})} />
+                            <input className="w-full p-2 border rounded" placeholder="Email" value={editingSchool.schoolEmail} onChange={e => setEditingSchool({...editingSchool, schoolEmail: e.target.value})} />
+                            <input className="w-full p-2 border rounded" placeholder="Phone" value={editingSchool.schoolPhone} onChange={e => setEditingSchool({...editingSchool, schoolPhone: e.target.value})} />
+                            <input className="w-full p-2 border rounded" placeholder="Password (Code)" value={editingSchool.schoolCode} onChange={e => setEditingSchool({...editingSchool, schoolCode: e.target.value})} />
+                            <div className="border p-2 rounded">
+                                <label className="text-xs font-bold text-gray-500 block mb-1">Logo</label>
+                                <input type="file" accept="image/*" onChange={handleLogoUpload} />
+                            </div>
+                        </div>
+                        <div className="flex gap-2 mt-4">
+                            <button onClick={() => setEditingSchool(null)} className="flex-1 py-2 bg-gray-100 rounded">Cancel</button>
+                            <button onClick={handleUpdateSchool} className="flex-1 py-2 bg-blue-600 text-white rounded">Save Changes</button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+             {/* Edit Student Modal */}
+             {editingStudent && (
+                <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-fade-in">
+                    <div className="bg-white rounded-xl shadow-xl p-6 max-w-lg w-full">
+                        <h3 className="text-xl font-bold mb-4">Edit Student</h3>
+                        <div className="space-y-3">
+                            <input className="w-full p-2 border rounded" placeholder="Student Name" value={editingStudent.studentName} onChange={e => setEditingStudent({...editingStudent, studentName: e.target.value})} />
+                            <input className="w-full p-2 border rounded" placeholder="Admission Number" value={editingStudent.admissionNumber} onChange={e => setEditingStudent({...editingStudent, admissionNumber: e.target.value})} />
+                            <select className="w-full p-2 border rounded bg-white" value={editingStudent.classLevel} onChange={e => setEditingStudent({...editingStudent, classLevel: e.target.value})}>
+                                {CLASS_LEVELS.map(c => <option key={c} value={c}>{c}</option>)}
+                            </select>
+                            <input className="w-full p-2 border rounded" placeholder="Parent Phone" value={editingStudent.parentPhone} onChange={e => setEditingStudent({...editingStudent, parentPhone: e.target.value})} />
+                        </div>
+                        <div className="flex gap-2 mt-4">
+                            <button onClick={() => setEditingStudent(null)} className="flex-1 py-2 bg-gray-100 rounded">Cancel</button>
+                            <button onClick={handleUpdateStudent} className="flex-1 py-2 bg-blue-600 text-white rounded">Save Changes</button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Sidebar */}
             <div className="w-full md:w-64 shrink-0 space-y-4">
                 <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
                     <h2 className="text-xl font-bold text-gray-800 flex items-center gap-2 mb-6">
                         <Database className="text-red-600" /> Master DB
                     </h2>
-                    
                     <div className="flex flex-col gap-2">
                         {tabs.map((tab) => {
                             const Icon = tab.icon;
@@ -940,10 +1210,10 @@ export default function App() {
                             return (
                                 <button
                                     key={tab.id}
-                                    onClick={() => setAdminTab(tab.id as any)}
+                                    onClick={() => { setAdminTab(tab.id as any); setFilterConfig({search:'', sort:'newest', filter:'all'}); }}
                                     className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-all font-medium text-sm ${
                                         isActive 
-                                            ? `${tab.color} text-white shadow-lg shadow-${tab.color.split('-')[1]}-200` 
+                                            ? `${tab.color} text-white shadow-lg` 
                                             : `text-gray-600 hover:bg-gray-50`
                                     }`}
                                 >
@@ -954,7 +1224,6 @@ export default function App() {
                         })}
                     </div>
                 </div>
-
                 <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-200">
                      <button onClick={() => setView('admin-dashboard')} className="w-full flex items-center justify-center gap-2 text-gray-500 hover:text-red-600 transition p-2 font-medium text-sm">
                         <LogOut size={16} /> Exit Dashboard
@@ -974,110 +1243,83 @@ export default function App() {
                 {adminTab === 'overview' && (
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                         <div className="p-6 bg-orange-50 border border-orange-100 rounded-2xl flex items-center gap-4">
-                            <div className="w-12 h-12 bg-white rounded-full flex items-center justify-center text-orange-600 shadow-sm">
-                                <School size={24} />
-                            </div>
-                            <div>
-                                <h3 className="text-3xl font-bold text-gray-800">{allSchools.length}</h3>
-                                <p className="text-sm text-gray-500 font-bold uppercase">Schools Registered</p>
-                            </div>
+                            <div className="w-12 h-12 bg-white rounded-full flex items-center justify-center text-orange-600 shadow-sm"><School size={24} /></div>
+                            <div><h3 className="text-3xl font-bold text-gray-800">{allSchools.length}</h3><p className="text-sm text-gray-500 font-bold uppercase">Schools</p></div>
                         </div>
                          <div className="p-6 bg-blue-50 border border-blue-100 rounded-2xl flex items-center gap-4">
-                            <div className="w-12 h-12 bg-white rounded-full flex items-center justify-center text-blue-600 shadow-sm">
-                                <Users size={24} />
-                            </div>
-                            <div>
-                                <h3 className="text-3xl font-bold text-gray-800">{allStudents.length}</h3>
-                                <p className="text-sm text-gray-500 font-bold uppercase">Students Active</p>
-                            </div>
+                            <div className="w-12 h-12 bg-white rounded-full flex items-center justify-center text-blue-600 shadow-sm"><Users size={24} /></div>
+                            <div><h3 className="text-3xl font-bold text-gray-800">{allStudents.length}</h3><p className="text-sm text-gray-500 font-bold uppercase">Students</p></div>
                         </div>
                         <div className="p-6 bg-yellow-50 border border-yellow-100 rounded-2xl flex items-center gap-4">
-                            <div className="w-12 h-12 bg-white rounded-full flex items-center justify-center text-yellow-600 shadow-sm">
-                                <GraduationCap size={24} />
-                            </div>
-                            <div>
-                                <h3 className="text-3xl font-bold text-gray-800">{allTeachers.length}</h3>
-                                <p className="text-sm text-gray-500 font-bold uppercase">Teachers Onboarded</p>
-                            </div>
+                            <div className="w-12 h-12 bg-white rounded-full flex items-center justify-center text-yellow-600 shadow-sm"><GraduationCap size={24} /></div>
+                            <div><h3 className="text-3xl font-bold text-gray-800">{allTeachers.length}</h3><p className="text-sm text-gray-500 font-bold uppercase">Teachers</p></div>
                         </div>
                          <div className="p-6 bg-purple-50 border border-purple-100 rounded-2xl flex items-center gap-4">
-                            <div className="w-12 h-12 bg-white rounded-full flex items-center justify-center text-purple-600 shadow-sm">
-                                <FileText size={24} />
-                            </div>
-                            <div>
-                                <h3 className="text-3xl font-bold text-gray-800">{allResults.length}</h3>
-                                <p className="text-sm text-gray-500 font-bold uppercase">Results Published</p>
-                            </div>
+                            <div className="w-12 h-12 bg-white rounded-full flex items-center justify-center text-purple-600 shadow-sm"><FileText size={24} /></div>
+                            <div><h3 className="text-3xl font-bold text-gray-800">{allResults.length}</h3><p className="text-sm text-gray-500 font-bold uppercase">Results</p></div>
                         </div>
                     </div>
                 )}
                 
                 {adminTab === 'schools' && (
-                     <div className="overflow-x-auto">
-                        <table className="w-full text-sm text-left border-collapse">
-                            <thead className="bg-gray-50 text-gray-600 uppercase text-xs">
-                                <tr>
-                                    <th className="p-4 border-b font-bold">School Name</th>
-                                    <th className="p-4 border-b font-bold">ID</th>
-                                    <th className="p-4 border-b font-bold">Email</th>
-                                    <th className="p-4 border-b font-bold text-right">Phone</th>
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-gray-100">
-                                {allSchools.map((s, i) => (
-                                    <tr key={i} className="hover:bg-gray-50 transition-colors">
-                                        <td className="p-4">
-                                            <div className="flex items-center gap-3">
-                                                <div className="w-8 h-8 rounded bg-gray-100 flex items-center justify-center overflow-hidden border">
-                                                    {s.schoolLogo ? <img src={s.schoolLogo} className="w-full h-full object-cover"/> : <School size={16} className="text-gray-400"/>}
-                                                </div>
-                                                <span className="font-bold text-gray-800">{s.schoolName}</span>
-                                            </div>
-                                        </td>
-                                        <td className="p-4 font-mono text-xs bg-gray-50/50 text-gray-600 rounded">{s.schoolId}</td>
-                                        <td className="p-4 text-gray-600">{s.schoolEmail || '-'}</td>
-                                        <td className="p-4 text-gray-600 text-right">{s.schoolPhone || '-'}</td>
+                     <div>
+                        {renderFilterToolbar()}
+                        <div className="overflow-x-auto">
+                            <table className="w-full text-sm text-left border-collapse">
+                                <thead className="bg-gray-50 text-gray-600 uppercase text-xs">
+                                    <tr>
+                                        <th className="p-4 border-b font-bold">School Name</th>
+                                        <th className="p-4 border-b font-bold">ID</th>
+                                        <th className="p-4 border-b font-bold">Details</th>
+                                        <th className="p-4 border-b font-bold text-right">Action</th>
                                     </tr>
-                                ))}
-                            </tbody>
-                        </table>
+                                </thead>
+                                <tbody className="divide-y divide-gray-100">
+                                    {filterAndSortData(allSchools, 'school').map((s, i) => (
+                                        <tr key={i} className="hover:bg-gray-50 transition-colors">
+                                            <td className="p-4">
+                                                <div className="flex items-center gap-3">
+                                                    <div className="w-8 h-8 rounded bg-gray-100 flex items-center justify-center overflow-hidden border">
+                                                        {s.schoolLogo ? <img src={s.schoolLogo} className="w-full h-full object-cover"/> : <School size={16} className="text-gray-400"/>}
+                                                    </div>
+                                                    <span className="font-bold text-gray-800">{s.schoolName}</span>
+                                                </div>
+                                            </td>
+                                            <td className="p-4 font-mono text-xs bg-gray-50/50 text-gray-600 rounded">{s.schoolId}</td>
+                                            <td className="p-4 text-xs text-gray-500">{s.schoolEmail}<br/>{s.schoolPhone}</td>
+                                            <td className="p-4 text-right">
+                                                <button onClick={() => setEditingSchool(s)} className="bg-orange-50 text-orange-600 p-2 rounded hover:bg-orange-100"><Edit size={16}/></button>
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
                     </div>
                 )}
 
                 {adminTab === 'students' && (
-                    <div className="space-y-4">
-                        <div className="relative">
-                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
-                            <input 
-                                type="text" 
-                                placeholder="Search by name, ID or school..." 
-                                className="w-full pl-10 pr-4 py-3 border rounded-xl outline-none focus:ring-2 focus:ring-blue-500 bg-gray-50" 
-                                onChange={(e) => setMasterSearch(e.target.value)} 
-                            />
-                        </div>
-                        <div className="overflow-x-auto max-h-[500px] border rounded-xl">
+                    <div>
+                        {renderFilterToolbar()}
+                        <div className="overflow-x-auto max-h-[600px]">
                             <table className="w-full text-sm text-left border-collapse">
                                 <thead className="bg-gray-50 text-gray-600 uppercase text-xs sticky top-0 z-10">
                                     <tr>
-                                        <th className="p-4 border-b">Student Name</th>
+                                        <th className="p-4 border-b">Name</th>
                                         <th className="p-4 border-b">Admission No</th>
-                                        <th className="p-4 border-b">School ID</th>
                                         <th className="p-4 border-b">Class</th>
+                                        <th className="p-4 border-b text-right">Action</th>
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-gray-100">
-                                    {allStudents
-                                        .filter(s => 
-                                            s.studentName.toLowerCase().includes(masterSearch.toLowerCase()) ||
-                                            s.admissionNumber.toLowerCase().includes(masterSearch.toLowerCase()) ||
-                                            s.schoolId.toLowerCase().includes(masterSearch.toLowerCase())
-                                        )
-                                        .map((s, i) => (
+                                    {filterAndSortData(allStudents, 'student').map((s, i) => (
                                         <tr key={i} className="hover:bg-gray-50">
                                             <td className="p-4 font-bold text-gray-800">{s.studentName}</td>
                                             <td className="p-4 text-gray-600 font-mono text-xs">{s.admissionNumber}</td>
-                                            <td className="p-4 text-gray-500 text-xs">{s.schoolId}</td>
-                                            <td className="p-4 text-gray-600"><span className="bg-blue-50 text-blue-700 px-2 py-1 rounded text-xs font-bold">{s.classLevel}</span></td>
+                                            <td className="p-4"><span className="bg-blue-50 text-blue-700 px-2 py-1 rounded text-xs font-bold">{s.classLevel}</span></td>
+                                            <td className="p-4 text-right">
+                                                <button onClick={() => setEditingStudent(s)} className="bg-blue-50 text-blue-600 p-2 rounded hover:bg-blue-100"><Edit size={16}/></button>
+                                            </td>
                                         </tr>
                                     ))}
                                 </tbody>
@@ -1087,27 +1329,62 @@ export default function App() {
                 )}
 
                 {adminTab === 'teachers' && (
-                     <div className="overflow-x-auto">
-                        <table className="w-full text-sm text-left border-collapse">
-                            <thead className="bg-gray-50 text-gray-600 uppercase text-xs">
-                                <tr>
-                                    <th className="p-4 border-b font-bold">Name</th>
-                                    <th className="p-4 border-b font-bold">Teacher ID</th>
-                                    <th className="p-4 border-b font-bold">School</th>
-                                    <th className="p-4 border-b font-bold">Contact</th>
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-gray-100">
-                                {allTeachers.map((t, i) => (
-                                    <tr key={i} className="hover:bg-gray-50 transition-colors">
-                                        <td className="p-4 font-bold text-gray-800">{t.teacherName}</td>
-                                        <td className="p-4 font-mono text-xs text-yellow-600 bg-yellow-50 rounded w-fit px-2">{t.generatedId}</td>
-                                        <td className="p-4 text-gray-600 text-xs">{t.schoolName}</td>
-                                        <td className="p-4 text-gray-500 text-xs">{t.email} <br/> {t.phoneNumber}</td>
+                     <div>
+                        {renderFilterToolbar()}
+                        <div className="overflow-x-auto">
+                            <table className="w-full text-sm text-left border-collapse">
+                                <thead className="bg-gray-50 text-gray-600 uppercase text-xs">
+                                    <tr>
+                                        <th className="p-4 border-b font-bold">Name</th>
+                                        <th className="p-4 border-b font-bold">ID</th>
+                                        <th className="p-4 border-b font-bold">School</th>
+                                        <th className="p-4 border-b font-bold text-right">Action</th>
                                     </tr>
-                                ))}
-                            </tbody>
-                        </table>
+                                </thead>
+                                <tbody className="divide-y divide-gray-100">
+                                    {filterAndSortData(allTeachers, 'teacher').map((t, i) => (
+                                        <tr key={i} className="hover:bg-gray-50 transition-colors">
+                                            <td className="p-4 font-bold text-gray-800">{t.teacherName}</td>
+                                            <td className="p-4 font-mono text-xs text-yellow-600 bg-yellow-50 rounded w-fit px-2">{t.generatedId}</td>
+                                            <td className="p-4 text-gray-600 text-xs">{t.schoolName}</td>
+                                            <td className="p-4 text-right flex justify-end gap-2">
+                                                 <button onClick={() => setEditingTeacher(t)} className="bg-yellow-50 text-yellow-600 p-2 rounded hover:bg-yellow-100"><Edit size={16}/></button>
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                )}
+
+                {adminTab === 'results' && (
+                    <div>
+                         {renderFilterToolbar()}
+                         <div className="overflow-x-auto max-h-[600px]">
+                            <table className="w-full text-sm text-left border-collapse">
+                                <thead className="bg-gray-50 text-gray-600 uppercase text-xs sticky top-0 z-10">
+                                    <tr>
+                                        <th className="p-4 border-b">Student</th>
+                                        <th className="p-4 border-b">Class</th>
+                                        <th className="p-4 border-b">Term</th>
+                                        <th className="p-4 border-b text-right">Action</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-gray-100">
+                                    {filterAndSortData(allResults, 'result').map((r, i) => (
+                                        <tr key={i} className="hover:bg-gray-50">
+                                            <td className="p-4 font-bold text-gray-800">{r.studentName}</td>
+                                            <td className="p-4 text-xs text-gray-600">{r.classLevel}</td>
+                                            <td className="p-4 text-xs text-gray-600">{r.term} {r.session}</td>
+                                            <td className="p-4 text-right">
+                                                <button onClick={() => handleEditResult(r)} className="bg-purple-50 text-purple-600 p-2 rounded hover:bg-purple-100"><Edit size={16}/></button>
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
                     </div>
                 )}
 
@@ -1115,19 +1392,51 @@ export default function App() {
                     <IdCardManager students={allStudents} teachers={allTeachers} />
                 )}
 
-                {adminTab === 'results' && (
-                    <div className="text-center text-gray-500 py-12 bg-gray-50 rounded-xl border-2 border-dashed border-gray-200">
-                        <div className="w-16 h-16 bg-purple-100 rounded-full flex items-center justify-center mx-auto mb-4 text-purple-600">
-                             <Database size={32} />
+                {adminTab === 'admins' && (
+                    <div className="space-y-6">
+                        <div className="bg-red-50 p-6 rounded-xl border border-red-100">
+                            <h3 className="text-lg font-bold text-red-800 mb-4">Add New Super Admin</h3>
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                <input placeholder="Name" className="p-2 border rounded" value={newSuperAdmin.name} onChange={e => setNewSuperAdmin({...newSuperAdmin, name: e.target.value})}/>
+                                <input placeholder="Email" className="p-2 border rounded" value={newSuperAdmin.email} onChange={e => setNewSuperAdmin({...newSuperAdmin, email: e.target.value})}/>
+                                <input placeholder="Secure Key" className="p-2 border rounded" value={newSuperAdmin.key} onChange={e => setNewSuperAdmin({...newSuperAdmin, key: e.target.value})}/>
+                            </div>
+                            <button onClick={handleAddSuperAdmin} className="mt-4 px-6 py-2 bg-red-600 text-white font-bold rounded hover:bg-red-700">Grant Access</button>
                         </div>
-                        <h3 className="text-lg font-bold text-gray-800">Result Database</h3>
-                        <p className="max-w-md mx-auto mt-2">Results are optimized for individual search retrieval to ensure performance. Use the "Edit Result" portal to find specific records.</p>
+
+                        <div className="bg-white border rounded-xl overflow-hidden">
+                             <table className="w-full text-sm text-left">
+                                <thead className="bg-gray-50 text-gray-700 font-bold uppercase text-xs">
+                                    <tr>
+                                        <th className="p-4">Name</th>
+                                        <th className="p-4">Email</th>
+                                        <th className="p-4 text-right">Action</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y">
+                                    <tr className="bg-gray-50">
+                                        <td className="p-4 font-bold text-gray-800">Root Admin</td>
+                                        <td className="p-4 text-gray-500">System Owner</td>
+                                        <td className="p-4 text-right"><span className="text-xs bg-gray-200 px-2 py-1 rounded">Protected</span></td>
+                                    </tr>
+                                    {superAdmins.map(admin => (
+                                        <tr key={admin.id}>
+                                            <td className="p-4">{admin.name}</td>
+                                            <td className="p-4 text-gray-500">{admin.email}</td>
+                                            <td className="p-4 text-right">
+                                                <button onClick={() => admin.id && handleDeleteSuperAdmin(admin.id)} className="text-red-500 hover:text-red-700"><Trash2 size={16}/></button>
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                             </table>
+                        </div>
                     </div>
                 )}
             </div>
         </div>
     );
-};
+  };
 
   const renderSchoolAdminDashboard = () => {
     // Define tabs
@@ -1169,6 +1478,27 @@ export default function App() {
                     <div className="bg-gray-50 p-3 rounded-lg border border-gray-100">
                         <p className="text-xs text-gray-500 uppercase font-bold">School ID</p>
                         <p className="font-mono text-xl font-bold text-orange-600 tracking-wider">{currentSchool.schoolId}</p>
+                    </div>
+                </div>
+            </div>
+        )}
+
+        {/* Edit Student Modal (Reused) */}
+        {editingStudent && (
+            <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-fade-in">
+                <div className="bg-white rounded-xl shadow-xl p-6 max-w-lg w-full">
+                    <h3 className="text-xl font-bold mb-4">Edit Student</h3>
+                    <div className="space-y-3">
+                        <input className="w-full p-2 border rounded" placeholder="Student Name" value={editingStudent.studentName} onChange={e => setEditingStudent({...editingStudent, studentName: e.target.value})} />
+                        <input className="w-full p-2 border rounded" placeholder="Admission Number" value={editingStudent.admissionNumber} onChange={e => setEditingStudent({...editingStudent, admissionNumber: e.target.value})} />
+                        <select className="w-full p-2 border rounded bg-white" value={editingStudent.classLevel} onChange={e => setEditingStudent({...editingStudent, classLevel: e.target.value})}>
+                            {CLASS_LEVELS.map(c => <option key={c} value={c}>{c}</option>)}
+                        </select>
+                        <input className="w-full p-2 border rounded" placeholder="Parent Phone" value={editingStudent.parentPhone} onChange={e => setEditingStudent({...editingStudent, parentPhone: e.target.value})} />
+                    </div>
+                    <div className="flex gap-2 mt-4">
+                        <button onClick={() => setEditingStudent(null)} className="flex-1 py-2 bg-gray-100 rounded">Cancel</button>
+                        <button onClick={handleUpdateStudent} className="flex-1 py-2 bg-blue-600 text-white rounded">Save Changes</button>
                     </div>
                 </div>
             </div>
@@ -1237,10 +1567,10 @@ export default function App() {
                         return (
                             <button
                                 key={tab.id}
-                                onClick={() => setSchoolDashboardTab(tab.id as any)}
+                                onClick={() => { setSchoolDashboardTab(tab.id as any); setFilterConfig({search:'', sort:'newest', filter:'all'}); }}
                                 className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-all font-medium text-sm ${
                                     isActive 
-                                        ? `${tab.color} text-white shadow-lg shadow-${tab.color.split('-')[1]}-200` 
+                                        ? `${tab.color} text-white shadow-lg` 
                                         : `text-gray-600 hover:bg-gray-50`
                                 }`}
                             >
@@ -1296,31 +1626,34 @@ export default function App() {
              )}
 
              {!loading && schoolDashboardTab === 'teachers' && (
-                 <div className="overflow-x-auto">
-                     <table className="w-full text-sm text-left">
-                         <thead className="bg-gray-50 text-gray-500 uppercase text-xs">
-                             <tr>
-                                 <th className="p-3">Name</th>
-                                 <th className="p-3">Teacher ID</th>
-                                 <th className="p-3">Email</th>
-                                 <th className="p-3 text-right">Actions</th>
-                             </tr>
-                         </thead>
-                         <tbody className="divide-y">
-                             {schoolData.teachers.map((t, i) => (
-                                 <tr key={i} className="hover:bg-gray-50 group">
-                                     <td className="p-3 font-bold">{t.teacherName}</td>
-                                     <td className="p-3 font-mono">{t.generatedId}</td>
-                                     <td className="p-3">{t.email}</td>
-                                     <td className="p-3 text-right flex justify-end gap-2">
-                                         <button onClick={() => setEditingTeacher(t)} className="text-blue-500 hover:text-blue-700 bg-blue-50 p-2 rounded-full"><Edit size={16}/></button>
-                                         <button onClick={() => t.id && handleDeleteTeacher(t.id)} className="text-red-500 hover:text-red-700 bg-red-50 p-2 rounded-full"><Trash2 size={16}/></button>
-                                     </td>
-                                 </tr>
-                             ))}
-                             {schoolData.teachers.length === 0 && <tr><td colSpan={4} className="p-4 text-center text-gray-400">No teachers found.</td></tr>}
-                         </tbody>
-                     </table>
+                 <div>
+                    {renderFilterToolbar()}
+                    <div className="overflow-x-auto">
+                        <table className="w-full text-sm text-left">
+                            <thead className="bg-gray-50 text-gray-500 uppercase text-xs">
+                                <tr>
+                                    <th className="p-3">Name</th>
+                                    <th className="p-3">Teacher ID</th>
+                                    <th className="p-3">Email</th>
+                                    <th className="p-3 text-right">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y">
+                                {filterAndSortData(schoolData.teachers, 'teacher').map((t, i) => (
+                                    <tr key={i} className="hover:bg-gray-50 group">
+                                        <td className="p-3 font-bold">{t.teacherName}</td>
+                                        <td className="p-3 font-mono">{t.generatedId}</td>
+                                        <td className="p-3">{t.email}</td>
+                                        <td className="p-3 text-right flex justify-end gap-2">
+                                            <button onClick={() => setEditingTeacher(t)} className="text-blue-500 hover:text-blue-700 bg-blue-50 p-2 rounded-full"><Edit size={16}/></button>
+                                            <button onClick={() => t.id && handleDeleteTeacher(t.id)} className="text-red-500 hover:text-red-700 bg-red-50 p-2 rounded-full"><Trash2 size={16}/></button>
+                                        </td>
+                                    </tr>
+                                ))}
+                                {schoolData.teachers.length === 0 && <tr><td colSpan={4} className="p-4 text-center text-gray-400">No teachers found.</td></tr>}
+                            </tbody>
+                        </table>
+                    </div>
                  </div>
              )}
 
@@ -1382,81 +1715,94 @@ export default function App() {
              )}
 
              {!loading && schoolDashboardTab === 'students' && (
-                 <div className="overflow-x-auto">
-                     <table className="w-full text-sm text-left">
-                         <thead className="bg-gray-50 text-gray-500 uppercase text-xs">
-                             <tr>
-                                 <th className="p-3">Name</th>
-                                 <th className="p-3">Admission No</th>
-                                 <th className="p-3">Class</th>
-                                 <th className="p-3">Parent Phone</th>
-                             </tr>
-                         </thead>
-                         <tbody className="divide-y">
-                             {schoolData.students.map((s, i) => (
-                                 <tr key={i} className="hover:bg-gray-50">
-                                     <td className="p-3 font-bold">{s.studentName}</td>
-                                     <td className="p-3 font-mono">{s.admissionNumber}</td>
-                                     <td className="p-3">{s.classLevel}</td>
-                                     <td className="p-3">{s.parentPhone}</td>
-                                 </tr>
-                             ))}
-                             {schoolData.students.length === 0 && <tr><td colSpan={4} className="p-4 text-center text-gray-400">No students found.</td></tr>}
-                         </tbody>
-                     </table>
+                 <div>
+                    {renderFilterToolbar()}
+                    <div className="overflow-x-auto">
+                        <table className="w-full text-sm text-left">
+                            <thead className="bg-gray-50 text-gray-500 uppercase text-xs">
+                                <tr>
+                                    <th className="p-3">Name</th>
+                                    <th className="p-3">Admission No</th>
+                                    <th className="p-3">Class</th>
+                                    <th className="p-3 text-right">Action</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y">
+                                {filterAndSortData(schoolData.students, 'student').map((s, i) => (
+                                    <tr key={i} className="hover:bg-gray-50">
+                                        <td className="p-3 font-bold">{s.studentName}</td>
+                                        <td className="p-3 font-mono">{s.admissionNumber}</td>
+                                        <td className="p-3">{s.classLevel}</td>
+                                        <td className="p-3 text-right">
+                                            <button onClick={() => setEditingStudent(s)} className="text-blue-500 hover:text-blue-700 bg-blue-50 p-2 rounded-full"><Edit size={16}/></button>
+                                        </td>
+                                    </tr>
+                                ))}
+                                {schoolData.students.length === 0 && <tr><td colSpan={4} className="p-4 text-center text-gray-400">No students found.</td></tr>}
+                            </tbody>
+                        </table>
+                    </div>
                  </div>
              )}
 
              {!loading && schoolDashboardTab === 'results' && (
-                  <div className="overflow-x-auto">
-                     <table className="w-full text-sm text-left">
-                         <thead className="bg-gray-50 text-gray-500 uppercase text-xs">
-                             <tr>
-                                 <th className="p-3">Student Name</th>
-                                 <th className="p-3">Class</th>
-                                 <th className="p-3">Term</th>
-                                 <th className="p-3">Session</th>
-                             </tr>
-                         </thead>
-                         <tbody className="divide-y">
-                             {schoolData.results.map((r, i) => (
-                                 <tr key={i} className="hover:bg-gray-50">
-                                     <td className="p-3 font-bold">{r.studentName}</td>
-                                     <td className="p-3">{r.classLevel}</td>
-                                     <td className="p-3">{r.term}</td>
-                                     <td className="p-3">{r.session}</td>
-                                 </tr>
-                             ))}
-                             {schoolData.results.length === 0 && <tr><td colSpan={4} className="p-4 text-center text-gray-400">No results uploaded yet.</td></tr>}
-                         </tbody>
-                     </table>
-                 </div>
+                  <div>
+                    {renderFilterToolbar()}
+                    <div className="overflow-x-auto">
+                        <table className="w-full text-sm text-left">
+                            <thead className="bg-gray-50 text-gray-500 uppercase text-xs">
+                                <tr>
+                                    <th className="p-3">Student Name</th>
+                                    <th className="p-3">Class</th>
+                                    <th className="p-3">Term</th>
+                                    <th className="p-3 text-right">Action</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y">
+                                {filterAndSortData(schoolData.results, 'result').map((r, i) => (
+                                    <tr key={i} className="hover:bg-gray-50">
+                                        <td className="p-3 font-bold">{r.studentName}</td>
+                                        <td className="p-3">{r.classLevel}</td>
+                                        <td className="p-3">{r.term} {r.session}</td>
+                                        <td className="p-3 text-right">
+                                            <button onClick={() => handleEditResult(r)} className="text-purple-500 hover:text-purple-700 bg-purple-50 p-2 rounded-full"><Edit size={16}/></button>
+                                        </td>
+                                    </tr>
+                                ))}
+                                {schoolData.results.length === 0 && <tr><td colSpan={4} className="p-4 text-center text-gray-400">No results uploaded yet.</td></tr>}
+                            </tbody>
+                        </table>
+                    </div>
+                  </div>
              )}
 
             {!loading && schoolDashboardTab === 'exams' && (
-                  <div className="overflow-x-auto">
-                     <table className="w-full text-sm text-left">
-                         <thead className="bg-gray-50 text-gray-500 uppercase text-xs">
-                             <tr>
-                                 <th className="p-3">Subject</th>
-                                 <th className="p-3">Type</th>
-                                 <th className="p-3">Class</th>
-                                 <th className="p-3">Code</th>
-                             </tr>
-                         </thead>
-                         <tbody className="divide-y">
-                             {schoolData.exams.map((e, i) => (
-                                 <tr key={i} className="hover:bg-gray-50">
-                                     <td className="p-3 font-bold">{e.subject}</td>
-                                     <td className="p-3 uppercase">{e.type}</td>
-                                     <td className="p-3">{e.classLevel}</td>
-                                     <td className="p-3 font-mono text-purple-600">{e.examCode}</td>
-                                 </tr>
-                             ))}
-                             {schoolData.exams.length === 0 && <tr><td colSpan={4} className="p-4 text-center text-gray-400">No exams created yet.</td></tr>}
-                         </tbody>
-                     </table>
-                 </div>
+                  <div>
+                    {renderFilterToolbar()}
+                    <div className="overflow-x-auto">
+                        <table className="w-full text-sm text-left">
+                            <thead className="bg-gray-50 text-gray-500 uppercase text-xs">
+                                <tr>
+                                    <th className="p-3">Subject</th>
+                                    <th className="p-3">Type</th>
+                                    <th className="p-3">Class</th>
+                                    <th className="p-3">Code</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y">
+                                {filterAndSortData(schoolData.exams, 'exam').map((e, i) => (
+                                    <tr key={i} className="hover:bg-gray-50">
+                                        <td className="p-3 font-bold">{e.subject}</td>
+                                        <td className="p-3 uppercase">{e.type}</td>
+                                        <td className="p-3">{e.classLevel}</td>
+                                        <td className="p-3 font-mono text-purple-600">{e.examCode}</td>
+                                    </tr>
+                                ))}
+                                {schoolData.exams.length === 0 && <tr><td colSpan={4} className="p-4 text-center text-gray-400">No exams created yet.</td></tr>}
+                            </tbody>
+                        </table>
+                    </div>
+                  </div>
              )}
 
              {!loading && schoolDashboardTab === 'attendance' && (
