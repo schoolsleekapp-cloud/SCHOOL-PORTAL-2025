@@ -103,7 +103,7 @@ const StudentIdCard: React.FC<StudentIdCardProps> = ({ student, onClose }) => {
                 ad: student.admissionNumber
               })}
               viewBox={`0 0 256 256`}
-              level="L" // Low error correction for less density (easier to scan)
+              level="M" // Changed to M to fix RS block errors
               bgColor="#FFFFFF"
               fgColor="#000000"
             />

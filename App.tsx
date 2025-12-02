@@ -1,5 +1,6 @@
 
 import React, { useState, useRef, useEffect } from 'react';
+import QRCode from "react-qr-code";
 import { 
   School, FileText, Search, ShieldAlert, Edit, Users, Building2, 
   Database, Plus, Trash2, Trophy, Activity, 
@@ -47,6 +48,7 @@ export default function App() {
   const [currentSchool, setCurrentSchool] = useState<SchoolData | null>(null);
   const [schoolLogin, setSchoolLogin] = useState({ id: '', password: '' });
   const [schoolDashboardTab, setSchoolDashboardTab] = useState<'overview' | 'teachers' | 'students' | 'results' | 'attendance' | 'exams'>('overview');
+  const [showSchoolQr, setShowSchoolQr] = useState(false);
   const [schoolData, setSchoolData] = useState({
     teachers: [] as TeacherData[],
     students: [] as StudentData[],
@@ -186,6 +188,7 @@ export default function App() {
     setGeneratedTeacher(null);
     setShowTeacherIdCard(false);
     setShowScanner(false);
+    setShowSchoolQr(false);
     setAttendanceStatus(null);
     setAttendanceReport(null);
     setPendingAttendance(null);
@@ -788,14 +791,50 @@ export default function App() {
 
   const renderSchoolAdminDashboard = () => (
     <div className="max-w-6xl mx-auto space-y-6 animate-fade-in">
+        {/* School QR Modal */}
+        {showSchoolQr && currentSchool && (
+            <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-fade-in" onClick={() => setShowSchoolQr(false)}>
+                <div className="bg-white p-6 rounded-2xl shadow-2xl max-w-sm w-full text-center relative" onClick={e => e.stopPropagation()}>
+                    <button onClick={() => setShowSchoolQr(false)} className="absolute top-4 right-4 text-gray-400 hover:text-gray-600"><X size={20}/></button>
+                    <div className="w-16 h-16 bg-orange-100 rounded-full flex items-center justify-center mx-auto mb-4 text-orange-600">
+                        <School size={32} />
+                    </div>
+                    <h3 className="text-xl font-bold text-gray-800 mb-1">{currentSchool.schoolName}</h3>
+                    <p className="text-sm text-gray-500 mb-6">School Identity QR Code</p>
+                    
+                    <div className="bg-white p-4 rounded-xl border-2 border-dashed border-orange-200 inline-block mb-4">
+                        <div style={{ height: "auto", margin: "0 auto", maxWidth: 200, width: "100%" }}>
+                            <QRCode
+                                size={256}
+                                level="M"
+                                style={{ height: "auto", maxWidth: "100%", width: "100%" }}
+                                value={currentSchool.schoolId}
+                                viewBox={`0 0 256 256`}
+                            />
+                        </div>
+                    </div>
+                    
+                    <div className="bg-gray-50 p-3 rounded-lg border border-gray-100">
+                        <p className="text-xs text-gray-500 uppercase font-bold">School ID</p>
+                        <p className="font-mono text-xl font-bold text-orange-600 tracking-wider">{currentSchool.schoolId}</p>
+                    </div>
+                </div>
+            </div>
+        )}
+
         <div className="bg-white p-6 rounded-2xl shadow-sm border-b flex flex-col md:flex-row justify-between items-center gap-4">
             <div className="flex items-center gap-4">
-                 <div className="w-12 h-12 bg-orange-100 rounded-full flex items-center justify-center text-orange-600 border border-orange-200">
+                 <div className="w-12 h-12 bg-orange-100 rounded-full flex items-center justify-center text-orange-600 border border-orange-200 cursor-pointer hover:bg-orange-200 transition" onClick={() => setShowSchoolQr(true)}>
                     <School size={24} />
                  </div>
                  <div>
                     <h2 className="text-2xl font-bold text-gray-800">{currentSchool?.schoolName}</h2>
-                    <p className="text-sm text-gray-500 font-mono">ID: {currentSchool?.schoolId}</p>
+                    <div className="flex items-center gap-2 text-sm text-gray-500 font-mono">
+                        <span>ID: {currentSchool?.schoolId}</span>
+                        <button onClick={() => setShowSchoolQr(true)} className="text-orange-600 hover:text-orange-700 bg-orange-50 px-2 py-0.5 rounded flex items-center gap-1 text-xs font-bold" title="View QR">
+                            <QrCode size={14}/> QR
+                        </button>
+                    </div>
                  </div>
             </div>
             <div className="flex items-center gap-3">

@@ -1,5 +1,5 @@
 import firebase from 'firebase/compat/app';
-import { initializeFirestore } from 'firebase/firestore';
+import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager } from 'firebase/firestore';
 import { getStorage } from 'firebase/storage';
 
 declare global {
@@ -36,10 +36,13 @@ try {
 // Initialize Firebase
 const app = firebase.initializeApp(firebaseConfig);
 
-// Initialize Firestore with experimentalForceLongPolling to prevent "Backend didn't respond within 10 seconds" errors
-// This forces the client to use HTTP long-polling instead of WebSockets, which is more stable in restricted networks.
+// Initialize Firestore
+// Using persistentLocalCache allows the app to work offline and sync when online.
+// Removed experimentalForceLongPolling to allow standard WebSocket connections which are often more stable.
 export const db = initializeFirestore(app as any, {
-  experimentalForceLongPolling: true,
+  localCache: persistentLocalCache({
+    tabManager: persistentMultipleTabManager()
+  })
 });
 
 // Initialize Storage
