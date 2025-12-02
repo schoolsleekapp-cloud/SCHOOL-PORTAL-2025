@@ -1722,6 +1722,7 @@ export default function App() {
                             <thead className="bg-gray-50 text-gray-500 uppercase text-xs">
                                 <tr>
                                     <th className="p-3">Name</th>
+                                    <th className="p-3">Student ID</th>
                                     <th className="p-3">Admission No</th>
                                     <th className="p-3">Class</th>
                                     <th className="p-3 text-right">Action</th>
@@ -1731,6 +1732,7 @@ export default function App() {
                                 {filterAndSortData(schoolData.students, 'student').map((s, i) => (
                                     <tr key={i} className="hover:bg-gray-50">
                                         <td className="p-3 font-bold">{s.studentName}</td>
+                                        <td className="p-3 font-mono text-purple-600">{s.generatedId}</td>
                                         <td className="p-3 font-mono">{s.admissionNumber}</td>
                                         <td className="p-3">{s.classLevel}</td>
                                         <td className="p-3 text-right">
@@ -1738,7 +1740,7 @@ export default function App() {
                                         </td>
                                     </tr>
                                 ))}
-                                {schoolData.students.length === 0 && <tr><td colSpan={4} className="p-4 text-center text-gray-400">No students found.</td></tr>}
+                                {schoolData.students.length === 0 && <tr><td colSpan={5} className="p-4 text-center text-gray-400">No students found.</td></tr>}
                             </tbody>
                         </table>
                     </div>
@@ -1813,7 +1815,9 @@ export default function App() {
                                  <th className="p-3">Date</th>
                                  <th className="p-3">Student</th>
                                  <th className="p-3">In</th>
+                                 <th className="p-3">In Guardian</th>
                                  <th className="p-3">Out</th>
+                                 <th className="p-3">Out Guardian</th>
                              </tr>
                          </thead>
                          <tbody className="divide-y">
@@ -1822,10 +1826,12 @@ export default function App() {
                                      <td className="p-3 font-mono text-xs">{a.date}</td>
                                      <td className="p-3 font-bold">{a.studentName}</td>
                                      <td className="p-3 text-green-600">{a.clockInTime || '-'}</td>
+                                     <td className="p-3 text-xs text-gray-500">{a.dropOffGuardian || '-'}</td>
                                      <td className="p-3 text-red-600">{a.clockOutTime || '-'}</td>
+                                     <td className="p-3 text-xs text-gray-500">{a.pickUpGuardian || '-'}</td>
                                  </tr>
                              ))}
-                             {schoolData.attendance.length === 0 && <tr><td colSpan={4} className="p-4 text-center text-gray-400">No attendance logs found.</td></tr>}
+                             {schoolData.attendance.length === 0 && <tr><td colSpan={6} className="p-4 text-center text-gray-400">No attendance logs found.</td></tr>}
                          </tbody>
                      </table>
                  </div>
