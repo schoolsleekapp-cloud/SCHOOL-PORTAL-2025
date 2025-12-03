@@ -1,4 +1,5 @@
 
+
 export interface Subject {
   selectedSubject: string;
   name: string;
@@ -66,6 +67,7 @@ export interface ResultData {
   userId?: string;
   searchName?: string;
   parentPhone?: string;
+  parentEmail?: string; // Added Parent Email
 }
 
 export interface SchoolData {
@@ -105,6 +107,7 @@ export interface StudentData {
   classLevel: string;
   gender: string;
   parentPhone: string;
+  parentEmail?: string; // Added Parent Email
   generatedId?: string;
   schoolName?: string;
   schoolLogo?: string;

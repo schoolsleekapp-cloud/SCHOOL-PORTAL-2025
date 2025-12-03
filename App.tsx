@@ -1,15 +1,15 @@
-
 import React, { useState, useRef, useEffect } from 'react';
 import QRCode from "react-qr-code";
 import { 
   School, FileText, Search, ShieldAlert, Edit, Users, Building2, 
   Database, Plus, Trash2, Trophy, Activity, 
   Sparkles, Loader2, Eye, ArrowLeft, RefreshCw, KeyRound, CheckCircle, Palette, Phone, Mail, MapPin, Clock, Star, UserCog,
-  Upload, QrCode, GraduationCap, Lock, House, LayoutDashboard, UserCheck, CreditCard, LogIn, LogOut, CalendarCheck, Calendar, ChevronLeft, ChevronRight, FileDown, Laptop2, BrainCircuit, X, User, BarChart3, Settings, ShieldCheck, UserPlus, Filter, ArrowUpDown
+  Upload, QrCode, GraduationCap, Lock, House, LayoutDashboard, UserCheck, CreditCard, LogIn, LogOut, CalendarCheck, Calendar, ChevronLeft, ChevronRight, FileDown, Laptop2, BrainCircuit, X, User, BarChart3, Settings, ShieldCheck, UserPlus, Filter, ArrowUpDown, Send, MessageCircle
 } from 'lucide-react';
 import { collection, addDoc, query, where, getDocs, doc, updateDoc, orderBy, deleteDoc } from 'firebase/firestore';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 
-import { db } from './services/firebase';
+import { db, storage } from './services/firebase';
 import { generateGeminiRemarks } from './services/gemini';
 import ResultTemplate from './components/ResultTemplate';
 import StudentIdCard from './components/StudentIdCard';
@@ -64,6 +64,15 @@ export default function App() {
   const [editingTeacher, setEditingTeacher] = useState<TeacherData | null>(null);
   const [newAdminData, setNewAdminData] = useState({ name: '', password: '' });
   
+  // Emailing & WhatsApp State
+  const [emailingResult, setEmailingResult] = useState<ResultData | null>(null);
+  const [isEmailing, setIsEmailing] = useState(false);
+  const emailTemplateRef = useRef<HTMLDivElement>(null);
+  
+  const [whatsappResult, setWhatsappResult] = useState<ResultData | null>(null);
+  const [isWhatsapping, setIsWhatsapping] = useState(false);
+  const whatsappTemplateRef = useRef<HTMLDivElement>(null);
+
   const [schoolData, setSchoolData] = useState({
     teachers: [] as TeacherData[],
     students: [] as StudentData[],
@@ -348,6 +357,139 @@ export default function App() {
       setIsEditing(true); 
       setView('create'); 
       setSuccessMsg("Loaded result for editing.");
+  };
+
+  // --- SEND RESULT TO PARENT EMAIL ---
+  const handleSendResultEmail = async (result: ResultData) => {
+    setIsEmailing(true);
+    try {
+        // 1. Get Email
+        let email = result.parentEmail;
+        if (!email) {
+            // Try fetching from Student Data if not in Result Data
+            const q = query(collection(db, 'Student Data'), where("schoolId", "==", result.schoolId), where("admissionNumber", "==", result.admissionNumber));
+            const snap = await getDocs(q);
+            if (!snap.empty) {
+                email = (snap.docs[0].data() as StudentData).parentEmail;
+            }
+        }
+
+        if (!email) {
+            alert("No parent email found for this student. Please update student profile.");
+            setIsEmailing(false);
+            return;
+        }
+
+        // 2. Prepare Template in DOM
+        setEmailingResult(result);
+        // Wait briefly for the hidden component to render with new data
+        await new Promise(resolve => setTimeout(resolve, 1500)); 
+
+        // 3. Generate Blob
+        if (!emailTemplateRef.current || !window.html2pdf) {
+             throw new Error("PDF Generator not ready.");
+        }
+        
+        const element = emailTemplateRef.current;
+        const opt = {
+            margin: 0,
+            filename: `${result.studentName}_Result.pdf`,
+            image: { type: 'jpeg', quality: 0.98 },
+            html2canvas: { scale: 2, useCORS: true },
+            jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+        };
+        
+        const pdfBlob = await window.html2pdf().set(opt).from(element).output('blob');
+
+        // 4. Upload to Firebase Storage
+        const fileName = `results/${result.schoolId}/email_${result.studentName.replace(/\s+/g,'_')}_${Date.now()}.pdf`;
+        const storageRef = ref(storage, fileName);
+        await uploadBytes(storageRef, pdfBlob);
+        const downloadUrl = await getDownloadURL(storageRef);
+
+        // 5. Open Mailto Link
+        const subject = `Term Result Sheet - ${result.studentName}`;
+        const body = `Dear Parent,\n\nPlease find attached the result sheet for ${result.studentName}.\n\nYou can view and download it here:\n${downloadUrl}\n\nBest Regards,\n${result.schoolName}`;
+        
+        window.location.href = `mailto:${email}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+        setSuccessMsg("Email client opened with result link!");
+
+    } catch (e: any) {
+        console.error(e);
+        alert("Failed to process email request: " + e.message);
+    } finally {
+        setIsEmailing(false);
+        setEmailingResult(null);
+    }
+  };
+
+  // --- SEND RESULT TO WHATSAPP ---
+  const handleSendResultWhatsApp = async (result: ResultData) => {
+    setIsWhatsapping(true);
+    try {
+        // 1. Get Phone Number
+        let phone = result.parentPhone;
+        if (!phone) {
+             const q = query(collection(db, 'Student Data'), where("schoolId", "==", result.schoolId), where("admissionNumber", "==", result.admissionNumber));
+             const snap = await getDocs(q);
+             if (!snap.empty) {
+                 phone = (snap.docs[0].data() as StudentData).parentPhone;
+             }
+        }
+
+        if (!phone) {
+            alert("No parent phone number found for this student.");
+            setIsWhatsapping(false);
+            return;
+        }
+
+        // 2. Prepare Template in DOM
+        setWhatsappResult(result);
+        await new Promise(resolve => setTimeout(resolve, 1500));
+
+        // 3. Generate Blob
+        if (!whatsappTemplateRef.current || !window.html2pdf) {
+             throw new Error("PDF Generator not ready.");
+        }
+
+        const element = whatsappTemplateRef.current;
+        const opt = {
+            margin: 0,
+            filename: `${result.studentName}_Result.pdf`,
+            image: { type: 'jpeg', quality: 0.98 },
+            html2canvas: { scale: 2, useCORS: true },
+            jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+        };
+
+        const pdfBlob = await window.html2pdf().set(opt).from(element).output('blob');
+
+        // 4. Upload to Firebase Storage
+        const fileName = `results/${result.schoolId}/wa_${result.studentName.replace(/\s+/g,'_')}_${Date.now()}.pdf`;
+        const storageRef = ref(storage, fileName);
+        await uploadBytes(storageRef, pdfBlob);
+        const downloadUrl = await getDownloadURL(storageRef);
+
+        // 5. Format Phone & Open WhatsApp
+        // Remove non-digits
+        let fmtPhone = phone.replace(/\D/g, '');
+        // Remove leading 0 if present
+        if (fmtPhone.startsWith('0')) fmtPhone = fmtPhone.substring(1);
+        // Add 234 if not present
+        if (!fmtPhone.startsWith('234')) fmtPhone = '234' + fmtPhone;
+
+        const message = `Hello, please find the result sheet for ${result.studentName} here: ${downloadUrl}`;
+        const whatsappUrl = `https://wa.me/${fmtPhone}?text=${encodeURIComponent(message)}`;
+
+        window.open(whatsappUrl, '_blank');
+        setSuccessMsg("WhatsApp opened with result link!");
+
+    } catch (e: any) {
+        console.error(e);
+        alert("Failed to process WhatsApp request: " + e.message);
+    } finally {
+        setIsWhatsapping(false);
+        setWhatsappResult(null);
+    }
   };
 
   const handleUpdateTeacher = async () => {
@@ -663,7 +805,8 @@ export default function App() {
                      ...prev, 
                      studentName: stData.studentName || prev.studentName, 
                      classLevel: stData.classLevel || prev.classLevel,
-                     parentPhone: stData.parentPhone || prev.parentPhone
+                     parentPhone: stData.parentPhone || prev.parentPhone,
+                     parentEmail: stData.parentEmail || prev.parentEmail
                 }));
                 setSuccessMsg("Student form auto-filled from Database!");
             } else {
@@ -722,19 +865,26 @@ export default function App() {
       }
 
       let finalParentPhone = formData.parentPhone;
-      if (!finalParentPhone) {
+      let finalParentEmail = formData.parentEmail;
+
+      if (!finalParentPhone || !finalParentEmail) {
          const qStudent = query(collection(db, 'Student Data'), 
             where("schoolId", "==", formData.schoolId), 
             where("admissionNumber", "==", formData.admissionNumber)
          );
          const sSnap = await getDocs(qStudent);
-         if (!sSnap.empty) { finalParentPhone = (sSnap.docs[0].data() as StudentData).parentPhone; }
+         if (!sSnap.empty) { 
+             const sData = sSnap.docs[0].data() as StudentData;
+             if(!finalParentPhone) finalParentPhone = sData.parentPhone;
+             if(!finalParentEmail) finalParentEmail = sData.parentEmail;
+         }
       }
 
       const currentUserId = 'anonymous';
       const dataToSave = {
         ...formData,
         parentPhone: finalParentPhone,
+        parentEmail: finalParentEmail,
         schoolId: formData.schoolId.trim(),
         admissionNumber: formData.admissionNumber.trim(),
         searchName: formData.studentName.toLowerCase().trim(),
@@ -754,6 +904,7 @@ export default function App() {
       }
       
       if (finalParentPhone) { setFormData(prev => ({ ...prev, parentPhone: finalParentPhone })); }
+      if (finalParentEmail) { setFormData(prev => ({ ...prev, parentEmail: finalParentEmail })); }
       
       setIsPublished(true);
       window.scrollTo(0, document.body.scrollHeight);
@@ -803,6 +954,7 @@ export default function App() {
           studentName: studentData.studentName || prev.studentName,
           classLevel: studentData.classLevel || prev.classLevel,
           parentPhone: studentData.parentPhone || prev.parentPhone,
+          parentEmail: studentData.parentEmail || prev.parentEmail,
           admissionNumber: studentData.admissionNumber || prev.admissionNumber
         }));
         setSuccessMsg("Student profile found and loaded!");
@@ -866,7 +1018,7 @@ export default function App() {
   };
   
   const handleGenerateRemarks = async () => { if (formData.subjects.length === 0) { setError("Please add subjects and scores first."); return; } setLoading(true); setError(''); try { const remarks = await generateGeminiRemarks(formData.studentName, formData.subjects, formData.classLevel, formData.position, formData.affective); setFormData(prev => ({ ...prev, principalRemark: remarks.principalRemark, teacherRemark: remarks.teacherRemark })); setSuccessMsg("Remarks generated by AI!"); } catch (err) { setError("Failed to generate remarks."); } finally { setLoading(false); } };
-  const handleRegisterStudent = async () => { if (!regData.studentName || !regData.admissionNumber || !regData.schoolId) { setError("Name, Admission Number, and School ID are required."); return; } setLoading(true); setError(''); try { const q = query(collection(db, 'School Data'), where("schoolId", "==", regData.schoolId.trim())); const querySnapshot = await getDocs(q); if (querySnapshot.empty) { setError("School ID not found. Please register the school first."); return; } const schoolData = querySnapshot.docs[0].data() as SchoolData; const schoolName = schoolData.schoolName || ""; const schoolLogo = schoolData.schoolLogo || ""; const uniqueId = Math.random().toString(36).substring(2, 10).toUpperCase(); const studentPayload: StudentData = { studentName: regData.studentName || "", admissionNumber: regData.admissionNumber || "", schoolId: regData.schoolId || "", classLevel: regData.classLevel || "", gender: regData.gender || "Male", parentPhone: regData.parentPhone || "", generatedId: uniqueId, schoolName: schoolName, schoolLogo: schoolLogo, createdAt: new Date().toISOString(), userId: 'anonymous' }; await addDoc(collection(db, 'Student Data'), studentPayload); setGeneratedStudent(studentPayload); setSuccessMsg("Student Registered Successfully!"); setShowIdCard(true); } catch(err: any) { console.error("Student Registration Error:", err); setError("Failed to register student."); } finally { setLoading(false); } };
+  const handleRegisterStudent = async () => { if (!regData.studentName || !regData.admissionNumber || !regData.schoolId) { setError("Name, Admission Number, and School ID are required."); return; } setLoading(true); setError(''); try { const q = query(collection(db, 'School Data'), where("schoolId", "==", regData.schoolId.trim())); const querySnapshot = await getDocs(q); if (querySnapshot.empty) { setError("School ID not found. Please register the school first."); return; } const schoolData = querySnapshot.docs[0].data() as SchoolData; const schoolName = schoolData.schoolName || ""; const schoolLogo = schoolData.schoolLogo || ""; const uniqueId = Math.random().toString(36).substring(2, 10).toUpperCase(); const studentPayload: StudentData = { studentName: regData.studentName || "", admissionNumber: regData.admissionNumber || "", schoolId: regData.schoolId || "", classLevel: regData.classLevel || "", gender: regData.gender || "Male", parentPhone: regData.parentPhone || "", parentEmail: regData.parentEmail || "", generatedId: uniqueId, schoolName: schoolName, schoolLogo: schoolLogo, createdAt: new Date().toISOString(), userId: 'anonymous' }; await addDoc(collection(db, 'Student Data'), studentPayload); setGeneratedStudent(studentPayload); setSuccessMsg("Student Registered Successfully!"); setShowIdCard(true); } catch(err: any) { console.error("Student Registration Error:", err); setError("Failed to register student."); } finally { setLoading(false); } };
   const handleRegisterTeacher = async () => { 
       if (!regData.teacherName || !regData.schoolId || !regData.email) { 
           setError("Name, School ID and Email are required."); 
@@ -1377,7 +1529,13 @@ export default function App() {
                                             <td className="p-4 font-bold text-gray-800">{r.studentName}</td>
                                             <td className="p-4 text-xs text-gray-600">{r.classLevel}</td>
                                             <td className="p-4 text-xs text-gray-600">{r.term} {r.session}</td>
-                                            <td className="p-4 text-right">
+                                            <td className="p-4 text-right flex justify-end gap-2">
+                                                <button onClick={() => handleSendResultWhatsApp(r)} disabled={isWhatsapping} className="bg-green-50 text-green-600 p-2 rounded hover:bg-green-100" title="Send via WhatsApp">
+                                                    {isWhatsapping && whatsappResult?.id === r.id ? <Loader2 size={16} className="animate-spin"/> : <MessageCircle size={16}/>}
+                                                </button>
+                                                <button onClick={() => handleSendResultEmail(r)} disabled={isEmailing} className="bg-blue-50 text-blue-600 p-2 rounded hover:bg-blue-100" title="Send via Email">
+                                                    {isEmailing && emailingResult?.id === r.id ? <Loader2 size={16} className="animate-spin"/> : <Send size={16}/>}
+                                                </button>
                                                 <button onClick={() => handleEditResult(r)} className="bg-purple-50 text-purple-600 p-2 rounded hover:bg-purple-100"><Edit size={16}/></button>
                                             </td>
                                         </tr>
@@ -1766,7 +1924,13 @@ export default function App() {
                                         <td className="p-3 font-bold">{r.studentName}</td>
                                         <td className="p-3">{r.classLevel}</td>
                                         <td className="p-3">{r.term} {r.session}</td>
-                                        <td className="p-3 text-right">
+                                        <td className="p-3 text-right flex justify-end gap-2">
+                                            <button onClick={() => handleSendResultWhatsApp(r)} disabled={isWhatsapping} className="text-green-500 hover:text-green-700 bg-green-50 p-2 rounded-full" title="Send via WhatsApp">
+                                                {isWhatsapping && whatsappResult?.id === r.id ? <Loader2 size={16} className="animate-spin"/> : <MessageCircle size={16}/>}
+                                            </button>
+                                            <button onClick={() => handleSendResultEmail(r)} disabled={isEmailing} className="text-blue-500 hover:text-blue-700 bg-blue-50 p-2 rounded-full" title="Send via Email">
+                                                {isEmailing && emailingResult?.id === r.id ? <Loader2 size={16} className="animate-spin"/> : <Send size={16}/>}
+                                            </button>
                                             <button onClick={() => handleEditResult(r)} className="text-purple-500 hover:text-purple-700 bg-purple-50 p-2 rounded-full"><Edit size={16}/></button>
                                         </td>
                                     </tr>
@@ -1843,6 +2007,20 @@ export default function App() {
   return (
     <div className="min-h-screen bg-gray-100 font-sans text-gray-900 pb-12 print:bg-white print:p-0">
       
+      {/* Hidden Container for Email Result PDF Generation */}
+      <div style={{ position: 'absolute', left: '-9999px', top: 0 }}>
+        <div ref={emailTemplateRef}>
+            {emailingResult && <ResultTemplate data={emailingResult} />}
+        </div>
+      </div>
+      
+      {/* Hidden Container for WhatsApp Result PDF Generation */}
+      <div style={{ position: 'absolute', left: '-9999px', top: 0 }}>
+        <div ref={whatsappTemplateRef}>
+            {whatsappResult && <ResultTemplate data={whatsappResult} />}
+        </div>
+      </div>
+
       {/* Modals & Popups */}
       {showIdCard && generatedStudent && <StudentIdCard student={generatedStudent} onClose={() => { setShowIdCard(false); setView('admin-dashboard'); setRegData({}); }} />}
       {showTeacherIdCard && generatedTeacher && <TeacherIdCard teacher={generatedTeacher} onClose={() => { setShowTeacherIdCard(false); setView('teachers-portal'); setRegData({}); }} />}
@@ -2196,6 +2374,9 @@ export default function App() {
                 <div><label className="text-xs font-bold text-gray-500">Current Class</label><select className="w-full p-3 border rounded bg-white" onChange={(e) => setRegData({...regData, classLevel: e.target.value})}>{CLASS_LEVELS.map(c => <option key={c} value={c}>{c}</option>)}</select></div>
                 <div><label className="text-xs font-bold text-gray-500">Parent Phone</label><input type="text" className="w-full p-3 border rounded" onChange={(e) => setRegData({...regData, parentPhone: e.target.value})} /></div>
               </div>
+              {/* Added Parent Email Input */}
+              <div><label className="text-xs font-bold text-gray-500">Parent Email</label><input type="email" className="w-full p-3 border rounded" placeholder="For emailing results" onChange={(e) => setRegData({...regData, parentEmail: e.target.value})} /></div>
+              
               <div className="flex gap-4 pt-4">
                 <button onClick={() => setView('admin-dashboard')} className="flex-1 py-3 bg-gray-200 rounded text-gray-700 font-bold">Cancel</button>
                 <button onClick={handleRegisterStudent} disabled={loading} className="flex-1 py-3 bg-blue-600 text-white rounded font-bold">{loading ? 'Saving...' : 'Save Student Data'}</button>
