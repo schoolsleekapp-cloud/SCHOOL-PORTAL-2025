@@ -1,13 +1,14 @@
 
 import React, { useState, useRef } from 'react';
 import QRCode from "react-qr-code";
-import { Search, Filter, ArrowUpDown, FileDown, User, BadgeCheck } from 'lucide-react';
+import { Search, Filter, ArrowUpDown, FileDown, User, BadgeCheck, Image as ImageIcon, Loader2 } from 'lucide-react';
 import { StudentData, TeacherData } from '../types';
 
-// Add html2pdf to window type
+// Add html2pdf and html2canvas to window type
 declare global {
   interface Window {
     html2pdf: any;
+    html2canvas: any;
   }
 }
 
@@ -23,6 +24,7 @@ const IdCardManager: React.FC<IdCardManagerProps> = ({ students, teachers }) => 
   const [filter, setFilter] = useState<FilterType>('all');
   const [sort, setSort] = useState<SortType>('name');
   const [search, setSearch] = useState('');
+  const [downloadingId, setDownloadingId] = useState<string | null>(null);
   const printRef = useRef<HTMLDivElement>(null);
 
   // Combine and normalize data
@@ -60,6 +62,63 @@ const IdCardManager: React.FC<IdCardManagerProps> = ({ students, teachers }) => 
       jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
     };
     window.html2pdf().set(opt).from(element).save();
+  };
+
+  const saveCanvas = (canvas: HTMLCanvasElement, item: any) => {
+       const link = document.createElement('a');
+       link.download = `${item.name.replace(/\s+/g, '_')}_ID.png`;
+       link.href = canvas.toDataURL('image/png');
+       document.body.appendChild(link);
+       link.click();
+       document.body.removeChild(link);
+  };
+
+  const handleDownloadImage = async (item: any) => {
+      const element = document.getElementById(`card-render-${item.id}`);
+      if (!element) return;
+      
+      setDownloadingId(item.id);
+      try {
+          // Priority 1: Use direct html2canvas if available (often bundled with html2pdf)
+          if (window.html2canvas) {
+             const canvas = await window.html2canvas(element, { 
+                 scale: 3, 
+                 useCORS: true, 
+                 backgroundColor: null,
+                 logging: false
+             });
+             saveCanvas(canvas, item);
+          } 
+          // Priority 2: Use html2pdf wrapper
+          else if (window.html2pdf) {
+              const opt = {
+                 html2canvas: { scale: 3, useCORS: true, backgroundColor: null },
+              };
+              
+              const worker = window.html2pdf().set(opt).from(element).toCanvas();
+              
+              await worker.then((canvas: any) => {
+                   if (canvas && canvas.toDataURL) {
+                      saveCanvas(canvas, item);
+                   } else {
+                      console.warn("Canvas undefined from html2pdf, trying secondary retrieval");
+                      // Sometimes worker resolves with the worker itself in older versions
+                      if (worker.prop && worker.prop.canvas) {
+                          saveCanvas(worker.prop.canvas, item);
+                      } else {
+                          throw new Error("Could not generate canvas.");
+                      }
+                   }
+              });
+          } else {
+              alert("PDF/Image library not loaded.");
+          }
+      } catch (e) {
+          console.error("Image generation error:", e);
+          alert("Failed to download image. Please try again.");
+      } finally {
+          setDownloadingId(null);
+      }
   };
 
   // Split data into chunks of 10 for pagination (2 cols x 5 rows)
@@ -123,18 +182,28 @@ const IdCardManager: React.FC<IdCardManagerProps> = ({ students, teachers }) => 
        {/* List View Preview */}
        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {filteredData.map((item, idx) => (
-          <div key={idx} className="bg-white border rounded-lg p-4 flex items-center gap-4 hover:shadow-md transition-shadow">
-            <div className={`w-12 h-12 rounded-full flex items-center justify-center shrink-0 ${item.type === 'student' ? 'bg-blue-100 text-blue-600' : 'bg-yellow-100 text-yellow-600'}`}>
-               {item.type === 'student' ? <User size={24} /> : <BadgeCheck size={24} />}
+          <div key={idx} className="bg-white border rounded-lg p-4 flex items-center justify-between gap-4 hover:shadow-md transition-shadow">
+            <div className="flex items-center gap-4 overflow-hidden">
+                <div className={`w-12 h-12 rounded-full flex items-center justify-center shrink-0 ${item.type === 'student' ? 'bg-blue-100 text-blue-600' : 'bg-yellow-100 text-yellow-600'}`}>
+                {item.type === 'student' ? <User size={24} /> : <BadgeCheck size={24} />}
+                </div>
+                <div className="overflow-hidden">
+                <h3 className="font-bold text-gray-800 truncate">{item.name}</h3>
+                <p className="text-xs text-gray-500 truncate">{item.schoolName}</p>
+                <div className="flex items-center gap-2 mt-1">
+                    <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase ${item.type === 'student' ? 'bg-blue-50 text-blue-700' : 'bg-yellow-50 text-yellow-700'}`}>{item.type}</span>
+                    <span className="text-[10px] text-gray-400 font-mono">{item.id}</span>
+                </div>
+                </div>
             </div>
-            <div className="overflow-hidden">
-               <h3 className="font-bold text-gray-800 truncate">{item.name}</h3>
-               <p className="text-xs text-gray-500 truncate">{item.schoolName}</p>
-               <div className="flex items-center gap-2 mt-1">
-                 <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase ${item.type === 'student' ? 'bg-blue-50 text-blue-700' : 'bg-yellow-50 text-yellow-700'}`}>{item.type}</span>
-                 <span className="text-[10px] text-gray-400 font-mono">{item.id}</span>
-               </div>
-            </div>
+            <button 
+                onClick={() => handleDownloadImage(item)}
+                disabled={!!downloadingId} 
+                className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-full transition shrink-0"
+                title="Download as Image"
+            >
+                {downloadingId === item.id ? <Loader2 size={20} className="animate-spin text-blue-600"/> : <ImageIcon size={20} />}
+            </button>
           </div>
         ))}
         {filteredData.length === 0 && (
@@ -164,7 +233,7 @@ const IdCardManager: React.FC<IdCardManagerProps> = ({ students, teachers }) => 
                 boxSizing: 'border-box'
              }}>
                 {pageItems.map((item, idx) => (
-                  <div key={idx} style={{
+                  <div key={idx} id={`card-render-${item.id}`} style={{
                      width: '85.6mm',
                      height: '54mm',
                      borderRadius: '8px',

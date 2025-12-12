@@ -1,5 +1,4 @@
 
-
 export interface Subject {
   selectedSubject: string;
   name: string;
@@ -67,11 +66,9 @@ export interface ResultData {
   userId?: string;
   searchName?: string;
   parentPhone?: string;
-  parentEmail?: string; // Added Parent Email
 }
 
 export interface SchoolData {
-  id?: string;
   schoolName: string;
   schoolId: string;
   schoolCode: string; // Used as Password
@@ -79,7 +76,6 @@ export interface SchoolData {
   schoolEmail: string;
   schoolPhone: string;
   schoolLogo: string;
-  createdAt?: string;
 }
 
 export interface SchoolAdminProfile {
@@ -91,23 +87,13 @@ export interface SchoolAdminProfile {
   createdAt: string;
 }
 
-export interface SuperAdminProfile {
-  id?: string;
-  name: string;
-  email: string;
-  key: string; // Secret key for login
-  createdAt: string;
-}
-
 export interface StudentData {
-  id?: string;
   studentName: string;
   admissionNumber: string;
   schoolId: string;
   classLevel: string;
   gender: string;
   parentPhone: string;
-  parentEmail?: string; // Added Parent Email
   generatedId?: string;
   schoolName?: string;
   schoolLogo?: string;

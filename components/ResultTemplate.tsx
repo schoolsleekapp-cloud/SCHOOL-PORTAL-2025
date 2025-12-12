@@ -15,9 +15,10 @@ declare global {
 interface ResultTemplateProps {
   data: ResultData;
   showDownloads?: boolean;
+  pdfId?: string;
 }
 
-const ResultTemplate: React.FC<ResultTemplateProps> = ({ data, showDownloads = false }) => {
+const ResultTemplate: React.FC<ResultTemplateProps> = ({ data, showDownloads = false, pdfId }) => {
   const themeColor = data.themeColor || '#6b21a8';
   const sheetRef = useRef<HTMLDivElement>(null);
   // Ref for the hidden container used for "Perfect A4" PDF generation
@@ -278,7 +279,7 @@ const ResultTemplate: React.FC<ResultTemplateProps> = ({ data, showDownloads = f
       {/* Hidden Container for Perfect A4 PDF Generation */}
       {/* Positioned absolutely at top-left to avoid any offset issues during html2canvas capture */}
       <div className="absolute top-0 left-0 -z-50 pointer-events-none opacity-0">
-        <div ref={pdfContainerRef} style={{ width: '210mm', height: '297mm' }}>
+        <div ref={pdfContainerRef} id={pdfId} style={{ width: '210mm', height: '297mm' }}>
              <ResultContent isPdfMode={true} />
         </div>
       </div>
