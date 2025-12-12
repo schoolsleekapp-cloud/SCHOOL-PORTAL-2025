@@ -26,6 +26,7 @@ declare global {
 
 interface CbtPortalProps {
   onBack: () => void;
+  initialStudent?: StudentData | null;
 }
 
 type PortalMode = 'selection' | 'teacher_login' | 'teacher_dash' | 'student_login' | 'student_exam';
@@ -196,7 +197,7 @@ const DrawingCanvas = ({ onSave, onClose, initialImage }: { onSave: (img: string
     );
 };
 
-const CbtPortal: React.FC<CbtPortalProps> = ({ onBack }) => {
+const CbtPortal: React.FC<CbtPortalProps> = ({ onBack, initialStudent }) => {
   const [mode, setMode] = useState<PortalMode>('selection');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -240,7 +241,7 @@ const CbtPortal: React.FC<CbtPortalProps> = ({ onBack }) => {
   const [examResults, setExamResults] = useState<ExamLog[]>([]);
 
   // Student State
-  const [student, setStudent] = useState<StudentData | null>(null);
+  const [student, setStudent] = useState<StudentData | null>(initialStudent || null);
   const [examCodeInput, setExamCodeInput] = useState('');
   const [activeAssessment, setActiveAssessment] = useState<CbtAssessment | null>(null);
   const [answers, setAnswers] = useState<{[key: number]: string}>({});
@@ -252,6 +253,14 @@ const CbtPortal: React.FC<CbtPortalProps> = ({ onBack }) => {
   const questionsPrintRef = useRef<HTMLDivElement>(null);
   const historyPrintRef = useRef<HTMLDivElement>(null);
   const studentResultPrintRef = useRef<HTMLDivElement>(null);
+
+  // Initialize with student if provided
+  useEffect(() => {
+      if (initialStudent) {
+          setStudent(initialStudent);
+          setMode('student_exam');
+      }
+  }, [initialStudent]);
 
   // Extended Math Symbols
   const MATH_SYMBOLS = [
@@ -1704,7 +1713,7 @@ const CbtPortal: React.FC<CbtPortalProps> = ({ onBack }) => {
 
                 {success && <p className="text-green-600 text-xs font-bold mb-4 bg-green-50 p-2 rounded">{success}</p>}
                 
-                <button onClick={() => { setStudent(null); setMode('selection'); setManualStudentId({schoolId:'',admissionNumber:''}); setExamSubmitted(false); }} className="w-full py-3 bg-gray-900 text-white rounded-xl font-bold hover:bg-gray-800 transition">
+                <button onClick={() => { setStudent(null); setMode('selection'); setManualStudentId({schoolId:'',admissionNumber:''}); setExamSubmitted(false); onBack(); }} className="w-full py-3 bg-gray-900 text-white rounded-xl font-bold hover:bg-gray-800 transition">
                    Return to Portal
                 </button>
              </div>
