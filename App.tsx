@@ -39,7 +39,8 @@ export default function App() {
   const [studentResults, setStudentResults] = useState<ResultData[]>([]);
   const [studentAttendanceLogs, setStudentAttendanceLogs] = useState<AttendanceLog[]>([]);
   const [loginMethod, setLoginMethod] = useState<'scan' | 'manual'>('scan');
-  const [manualStudentLogin, setManualStudentLogin] = useState({ schoolId: '', admissionNumber: '' });
+  const [manualStudentLogin, setManualStudentLogin] = useState({ schoolId: '', studentId: '' });
+  const [showDashboardIdCard, setShowDashboardIdCard] = useState(false);
 
   // Form State
   const [isEditing, setIsEditing] = useState(false);
@@ -163,16 +164,17 @@ export default function App() {
   }, [view, dashboardStudent]);
 
   const handleStudentLogin = async () => {
-      if (!manualStudentLogin.schoolId || !manualStudentLogin.admissionNumber) {
-          setError("School ID and Admission Number are required.");
+      if (!manualStudentLogin.schoolId || !manualStudentLogin.studentId) {
+          setError("School ID and Student ID are required.");
           return;
       }
       setLoading(true);
       setError('');
       try {
+          // Login with Generated Student ID
           const q = query(collection(db, 'Student Data'), 
               where("schoolId", "==", manualStudentLogin.schoolId.trim()),
-              where("admissionNumber", "==", manualStudentLogin.admissionNumber.trim())
+              where("generatedId", "==", manualStudentLogin.studentId.trim())
           );
           const snap = await getDocs(q);
           if (!snap.empty) {
@@ -180,7 +182,7 @@ export default function App() {
               setView('student-dashboard');
               setSuccessMsg("Welcome back!");
           } else {
-              setError("Student record not found.");
+              setError("Student record not found. Please check your Student ID.");
           }
       } catch (err) {
           console.error(err);
@@ -266,8 +268,14 @@ export default function App() {
 
                           <div className="mt-8">
                               <h4 className="font-bold text-gray-800 mb-4 flex items-center gap-2"><CreditCard size={18}/> Digital ID Card</h4>
-                              <div className="bg-gray-100 p-8 rounded-xl flex justify-center">
-                                  <StudentIdCard student={dashboardStudent} onClose={() => {}} />
+                              <div className="bg-gray-100 p-8 rounded-xl flex justify-center flex-col items-center gap-4">
+                                  <div className="text-center text-gray-500 text-sm mb-2">View and download your official student identity card.</div>
+                                  <button 
+                                    onClick={() => setShowDashboardIdCard(true)}
+                                    className="px-6 py-3 bg-blue-600 text-white rounded-lg font-bold hover:bg-blue-700 transition flex items-center gap-2 shadow-lg"
+                                  >
+                                      <CreditCard size={20}/> View My ID Card
+                                  </button>
                               </div>
                           </div>
                       </div>
@@ -422,7 +430,7 @@ export default function App() {
             setSuccessMsg("Fetching attendance history...");
             try {
                 const q = query(collection(db, 'Attendance Data'), 
-                    where("schoolId", "==", data.sc),
+                    where("schoolId", "==", data.sc), 
                     where("admissionNumber", "==", data.ad)
                 );
                 const querySnapshot = await getDocs(q);
@@ -535,7 +543,7 @@ export default function App() {
     setEditDocId(null);
     setFoundResult(null);
     setSchoolLogin({ id: '', password: '' });
-    setManualStudentLogin({ schoolId: '', admissionNumber: '' });
+    setManualStudentLogin({ schoolId: '', studentId: '' });
     setAdminQuery({ schoolId: '', studentId: '', teacherCode: '' });
     setSearchQuery({ schoolId: '', studentId: '' });
   };
@@ -989,16 +997,29 @@ export default function App() {
      }
      setLoading(true);
      try {
+         // 1. Verify Teacher
          const qT = query(collection(db, 'Teacher Data'), where("generatedId", "==", adminQuery.teacherCode));
          const snapT = await getDocs(qT);
          if (snapT.empty) throw new Error("Invalid Teacher ID");
          
+         // 2. Lookup Student to resolve ID to Admission Number
+         const qS = query(collection(db, 'Student Data'), 
+             where("schoolId", "==", adminQuery.schoolId.trim()),
+             where("generatedId", "==", adminQuery.studentId.trim()) // Using generatedId (Student ID)
+         );
+         const snapS = await getDocs(qS);
+         if (snapS.empty) throw new Error("Student ID not found in database.");
+         
+         const studentData = snapS.docs[0].data() as StudentData;
+         const admissionNo = studentData.admissionNumber;
+
+         // 3. Lookup Result using Admission Number
          const qR = query(collection(db, 'Result Data'), 
-             where("schoolId", "==", adminQuery.schoolId),
-             where("admissionNumber", "==", adminQuery.studentId)
+             where("schoolId", "==", adminQuery.schoolId.trim()),
+             where("admissionNumber", "==", admissionNo)
          );
          const snapR = await getDocs(qR);
-         if (snapR.empty) throw new Error("Result not found.");
+         if (snapR.empty) throw new Error("No result found for this student.");
          
          const resData = snapR.docs[0].data() as ResultData;
          setFormData(resData);
@@ -1067,6 +1088,11 @@ export default function App() {
       {showTeacherIdCard && generatedTeacher && <TeacherIdCard teacher={generatedTeacher} onClose={() => { setShowTeacherIdCard(false); setView('teachers-portal'); setRegData({}); }} />}
       {showScanner && <QrScannerModal onScanSuccess={handleScanSuccess} onClose={() => setShowScanner(false)} />}
       
+      {/* Student Dashboard ID Card Modal */}
+      {showDashboardIdCard && dashboardStudent && (
+          <StudentIdCard student={dashboardStudent} onClose={() => setShowDashboardIdCard(false)} />
+      )}
+
       {/* Hidden Export Container */}
       <div className="fixed top-0 left-0 -z-50 opacity-0 pointer-events-none">
           {exportState.data && (
@@ -1200,13 +1226,13 @@ export default function App() {
                              />
                          </div>
                          <div>
-                             <label className="text-xs font-bold text-gray-500 uppercase">Admission Number</label>
+                             <label className="text-xs font-bold text-gray-500 uppercase">Student ID</label>
                              <input 
                                   type="text" 
                                   className="w-full p-3 border rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none transition"
-                                  placeholder="e.g. ADM/2024/005"
-                                  value={manualStudentLogin.admissionNumber}
-                                  onChange={(e) => setManualStudentLogin({...manualStudentLogin, admissionNumber: e.target.value})}
+                                  placeholder="e.g. 8X9Y2Z"
+                                  value={manualStudentLogin.studentId}
+                                  onChange={(e) => setManualStudentLogin({...manualStudentLogin, studentId: e.target.value})}
                              />
                          </div>
                          <button onClick={handleStudentLogin} disabled={loading} className="w-full py-3 bg-indigo-600 text-white font-bold rounded-lg hover:bg-indigo-700 transition">
@@ -1609,7 +1635,7 @@ export default function App() {
 
               <div className="space-y-4 text-left">
                 <div><label className="text-xs font-bold text-gray-500 uppercase">School ID</label><input type="text" value={adminQuery.schoolId} onChange={(e) => setAdminQuery({...adminQuery, schoolId: e.target.value})} className="w-full p-3 border rounded-lg outline-none focus:border-orange-500" placeholder="e.g. SCH-001"/></div>
-                <div><label className="text-xs font-bold text-gray-500 uppercase">Student ID (Admission No)</label><input type="text" value={adminQuery.studentId} onChange={(e) => setAdminQuery({...adminQuery, studentId: e.target.value})} className="w-full p-3 border rounded-lg outline-none focus:border-orange-500" placeholder="e.g. ADM/2024/055"/></div>
+                <div><label className="text-xs font-bold text-gray-500 uppercase">Student ID</label><input type="text" value={adminQuery.studentId} onChange={(e) => setAdminQuery({...adminQuery, studentId: e.target.value})} className="w-full p-3 border rounded-lg outline-none focus:border-orange-500" placeholder="e.g. 8X9Y2Z"/></div>
                 <div className="pt-2 border-t border-dashed"><label className="text-xs font-bold text-red-500 uppercase flex items-center gap-1"><KeyRound size={12} /> Teacher ID / Admin Code</label><input type="password" value={adminQuery.teacherCode} onChange={(e) => setAdminQuery({...adminQuery, teacherCode: e.target.value})} className="w-full p-3 border rounded-lg outline-none focus:border-red-500 bg-red-50" placeholder="Enter your Teacher ID"/></div>
                 <button onClick={handleAdminLookup} disabled={loading} className="w-full py-3 bg-orange-600 text-white font-bold rounded-lg hover:bg-orange-700 transition-colors flex items-center justify-center gap-2">{loading ? <Loader2 className="animate-spin" size={18}/> : <Edit size={18} />}{loading ? "Verifying..." : "Verify & Edit"}</button>
                 {error && <p className="text-red-500 text-sm text-center font-medium bg-red-50 p-2 rounded">{error}</p>}
