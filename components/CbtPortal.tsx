@@ -1,4 +1,5 @@
 
+
 import React, { useState, useEffect, useRef } from 'react';
 import { 
   Laptop2, QrCode, Upload, FileText, CheckCircle, Clock, 
@@ -27,9 +28,10 @@ declare global {
 interface CbtPortalProps {
   onBack: () => void;
   initialStudent?: StudentData | null;
+  initialTeacher?: TeacherData | null;
 }
 
-type PortalMode = 'selection' | 'teacher_login' | 'teacher_dash' | 'student_login' | 'student_exam';
+type PortalMode = 'selection' | 'teacher_dash' | 'student_exam';
 
 // --- Drawing Canvas Component ---
 const DrawingCanvas = ({ onSave, onClose, initialImage }: { onSave: (img: string) => void, onClose: () => void, initialImage?: string }) => {
@@ -197,20 +199,14 @@ const DrawingCanvas = ({ onSave, onClose, initialImage }: { onSave: (img: string
     );
 };
 
-const CbtPortal: React.FC<CbtPortalProps> = ({ onBack, initialStudent }) => {
+const CbtPortal: React.FC<CbtPortalProps> = ({ onBack, initialStudent, initialTeacher }) => {
   const [mode, setMode] = useState<PortalMode>('selection');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
-  const [showScanner, setShowScanner] = useState(false);
   
-  // Login Method Toggle
-  const [loginMethod, setLoginMethod] = useState<'scan' | 'manual'>('scan');
-  const [manualTeacherId, setManualTeacherId] = useState('');
-  const [manualStudentId, setManualStudentId] = useState({ schoolId: '', admissionNumber: '' });
-
   // Teacher State
-  const [teacher, setTeacher] = useState<TeacherData | null>(null);
+  const [teacher, setTeacher] = useState<TeacherData | null>(initialTeacher || null);
   const [myAssessments, setMyAssessments] = useState<CbtAssessment[]>([]);
   const [viewingHistoryItem, setViewingHistoryItem] = useState<CbtAssessment | null>(null);
   
@@ -254,13 +250,19 @@ const CbtPortal: React.FC<CbtPortalProps> = ({ onBack, initialStudent }) => {
   const historyPrintRef = useRef<HTMLDivElement>(null);
   const studentResultPrintRef = useRef<HTMLDivElement>(null);
 
-  // Initialize with student if provided
+  // Initialize Mode based on props
   useEffect(() => {
-      if (initialStudent) {
+      if (initialTeacher) {
+          setTeacher(initialTeacher);
+          setMode('teacher_dash');
+      } else if (initialStudent) {
           setStudent(initialStudent);
           setMode('student_exam');
+      } else {
+          // If accessed directly without auth, redirect back (should cover via App.tsx logic)
+          // For safety, we can show a message or just empty state
       }
-  }, [initialStudent]);
+  }, [initialStudent, initialTeacher]);
 
   // Extended Math Symbols
   const MATH_SYMBOLS = [
@@ -476,86 +478,6 @@ const CbtPortal: React.FC<CbtPortalProps> = ({ onBack, initialStudent }) => {
           groups[section].push(q);
       });
       return groups;
-  };
-
-  const handleScan = async (dataStr: string) => {
-    setShowScanner(false);
-    setError('');
-    try {
-      const data = JSON.parse(dataStr);
-      
-      if (mode === 'teacher_login') {
-        // Teacher Scan
-        if (!data.id) throw new Error("Invalid Teacher ID");
-        setLoading(true);
-        const q = query(collection(db, 'Teacher Data'), where("generatedId", "==", data.id));
-        const snap = await getDocs(q);
-        if (snap.empty) throw new Error("Teacher record not found.");
-        setTeacher(snap.docs[0].data() as TeacherData);
-        setMode('teacher_dash');
-      } else if (mode === 'student_login') {
-        // Student Scan
-        if (!data.ad || !data.sc) throw new Error("Invalid Student ID");
-        setLoading(true);
-        const q = query(collection(db, 'Student Data'), 
-          where("schoolId", "==", data.sc),
-          where("admissionNumber", "==", data.ad)
-        );
-        const snap = await getDocs(q);
-        if (snap.empty) throw new Error("Student record not found.");
-        setStudent(snap.docs[0].data() as StudentData);
-        setMode('student_exam'); // Go to code entry
-      }
-    } catch (err: any) {
-      setError(err.message || "Scan failed.");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleTeacherManualLogin = async () => {
-    if (!manualTeacherId.trim()) {
-        setError("Please enter your Teacher ID.");
-        return;
-    }
-    setLoading(true);
-    setError('');
-    try {
-        const q = query(collection(db, 'Teacher Data'), where("generatedId", "==", manualTeacherId.trim()));
-        const snap = await getDocs(q);
-        if (snap.empty) throw new Error("Teacher record not found. Please check ID.");
-        
-        setTeacher(snap.docs[0].data() as TeacherData);
-        setMode('teacher_dash');
-    } catch (err: any) {
-        setError(err.message || "Login failed.");
-    } finally {
-        setLoading(false);
-    }
-  };
-
-  const handleStudentManualLogin = async () => {
-    if (!manualStudentId.schoolId || !manualStudentId.admissionNumber) {
-        setError("Please enter School ID and Admission Number.");
-        return;
-    }
-    setLoading(true);
-    setError('');
-    try {
-        const q = query(collection(db, 'Student Data'), 
-          where("schoolId", "==", manualStudentId.schoolId.trim()),
-          where("admissionNumber", "==", manualStudentId.admissionNumber.trim())
-        );
-        const snap = await getDocs(q);
-        if (snap.empty) throw new Error("Student record not found.");
-        
-        setStudent(snap.docs[0].data() as StudentData);
-        setMode('student_exam');
-    } catch (err: any) {
-        setError(err.message || "Login failed.");
-    } finally {
-        setLoading(false);
-    }
   };
 
   const handleGenerateQuestions = async () => {
@@ -882,125 +804,6 @@ const CbtPortal: React.FC<CbtPortalProps> = ({ onBack, initialStudent }) => {
 
   // --- RENDERS ---
 
-  if (mode === 'selection') {
-    return (
-      <div className="max-w-4xl mx-auto p-6 animate-slide-up">
-        <button onClick={onBack} className="mb-6 text-gray-500 hover:text-gray-800 flex items-center gap-2 font-bold"><ChevronRight className="rotate-180" size={20}/> Back to Portal</button>
-        <div className="bg-white rounded-2xl shadow-xl p-8 text-center">
-           <h1 className="text-3xl font-bold text-gray-800 mb-2 flex items-center justify-center gap-3">
-             <Laptop2 className="text-blue-600" size={32} /> CBT Portal
-           </h1>
-           <p className="text-gray-500 mb-8">Computer Based Test System for Assessment & Exams</p>
-           
-           <div className="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-2xl mx-auto">
-              <button onClick={() => { setMode('teacher_login'); setLoginMethod('scan'); setError(''); }} className="flex flex-col items-center p-8 bg-purple-50 border-2 border-purple-100 rounded-xl hover:border-purple-500 transition-all group">
-                 <div className="w-16 h-16 bg-purple-100 rounded-full flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
-                    <BrainCircuit className="text-purple-600" size={32} />
-                 </div>
-                 <h3 className="text-xl font-bold text-gray-800">Teacher Login</h3>
-                 <p className="text-sm text-gray-500 mt-2">Create Assessments & Upload Notes</p>
-              </button>
-              
-              <button onClick={() => { setMode('student_login'); setLoginMethod('scan'); setError(''); }} className="flex flex-col items-center p-8 bg-blue-50 border-2 border-blue-100 rounded-xl hover:border-blue-500 transition-all group">
-                 <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
-                    <User className="text-blue-600" size={32} />
-                 </div>
-                 <h3 className="text-xl font-bold text-gray-800">Student Login</h3>
-                 <p className="text-sm text-gray-500 mt-2">Take Exam & Check Scores</p>
-              </button>
-           </div>
-        </div>
-      </div>
-    );
-  }
-
-  // Teacher & Student Login (Shared Scanner Logic + Manual Toggle)
-  if (mode === 'teacher_login' || mode === 'student_login') {
-    const isTeacher = mode === 'teacher_login';
-    return (
-      <div className="max-w-md mx-auto p-6 animate-fade-in mt-10">
-        <button onClick={() => { setMode('selection'); setError(''); }} className="mb-4 text-sm text-gray-500">Back</button>
-        <div className="bg-white rounded-2xl shadow-xl p-8 text-center">
-           <h2 className="text-2xl font-bold mb-6">{isTeacher ? 'Teacher Login' : 'Student Login'}</h2>
-           
-           {/* Toggle Login Method */}
-           <div className="flex bg-gray-100 p-1 rounded-lg mb-6">
-                <button 
-                    onClick={() => { setLoginMethod('scan'); setError(''); }}
-                    className={`flex-1 py-2 rounded-md text-sm font-bold transition ${loginMethod === 'scan' ? 'bg-white shadow text-gray-800' : 'text-gray-500 hover:text-gray-700'}`}
-                >
-                    <div className="flex items-center justify-center gap-2"><QrCode size={16}/> Scan QR</div>
-                </button>
-                <button 
-                    onClick={() => { setLoginMethod('manual'); setError(''); }}
-                    className={`flex-1 py-2 rounded-md text-sm font-bold transition ${loginMethod === 'manual' ? 'bg-white shadow text-gray-800' : 'text-gray-500 hover:text-gray-700'}`}
-                >
-                    <div className="flex items-center justify-center gap-2"><KeyRound size={16}/> Enter ID</div>
-                </button>
-           </div>
-
-           {loginMethod === 'scan' ? (
-                <button 
-                    onClick={() => setShowScanner(true)}
-                    className="w-full py-4 bg-black text-white rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-gray-800 transition"
-                >
-                    <QrCode size={20} /> Open Camera
-                </button>
-           ) : (
-               <div className="space-y-4 text-left animate-fade-in">
-                   {isTeacher ? (
-                       <div>
-                           <label className="text-xs font-bold text-gray-500 uppercase">Teacher ID</label>
-                           <input 
-                                type="text" 
-                                className="w-full p-3 border rounded-lg focus:ring-2 focus:ring-purple-500 outline-none transition"
-                                placeholder="e.g. TCH-8521"
-                                value={manualTeacherId}
-                                onChange={(e) => setManualTeacherId(e.target.value)}
-                           />
-                       </div>
-                   ) : (
-                       <>
-                           <div>
-                               <label className="text-xs font-bold text-gray-500 uppercase">School ID</label>
-                               <input 
-                                    type="text" 
-                                    className="w-full p-3 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none transition"
-                                    placeholder="e.g. SCH-001"
-                                    value={manualStudentId.schoolId}
-                                    onChange={(e) => setManualStudentId({...manualStudentId, schoolId: e.target.value})}
-                               />
-                           </div>
-                           <div>
-                               <label className="text-xs font-bold text-gray-500 uppercase">Admission Number</label>
-                               <input 
-                                    type="text" 
-                                    className="w-full p-3 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none transition"
-                                    placeholder="e.g. ADM/2024/005"
-                                    value={manualStudentId.admissionNumber}
-                                    onChange={(e) => setManualStudentId({...manualStudentId, admissionNumber: e.target.value})}
-                               />
-                           </div>
-                       </>
-                   )}
-                   
-                   <button 
-                        onClick={isTeacher ? handleTeacherManualLogin : handleStudentManualLogin}
-                        disabled={loading}
-                        className={`w-full py-3 text-white rounded-xl font-bold flex items-center justify-center gap-2 transition shadow-lg ${isTeacher ? 'bg-purple-600 hover:bg-purple-700' : 'bg-blue-600 hover:bg-blue-700'}`}
-                   >
-                        {loading ? <Loader2 className="animate-spin" /> : <Play size={18} />} Login
-                   </button>
-               </div>
-           )}
-
-           {error && <p className="text-red-500 mt-4 text-sm bg-red-50 p-2 rounded border border-red-100 font-medium">{error}</p>}
-        </div>
-        {showScanner && <QrScannerModal onScanSuccess={handleScan} onClose={() => setShowScanner(false)} />}
-      </div>
-    );
-  }
-
   // Teacher Dashboard
   if (mode === 'teacher_dash' && teacher) {
     const groupedGeneratedQuestions = getGroupedQuestions(assessmentForm.generatedQuestions);
@@ -1165,14 +968,13 @@ const CbtPortal: React.FC<CbtPortalProps> = ({ onBack, initialStudent }) => {
 
         <div className="flex flex-wrap gap-4 justify-between items-center mb-6">
            <div>
-             <h2 className="text-2xl font-bold text-gray-800">Welcome, {teacher.teacherName}</h2>
-             <p className="text-gray-500 text-sm">{teacher.schoolName}</p>
+             <h2 className="text-2xl font-bold text-gray-800">CBT Exam Manager</h2>
+             <p className="text-gray-500 text-sm">Create and Manage Assessments</p>
            </div>
            <div className="flex gap-4 items-center">
              <button onClick={() => setShowResultModal(true)} className="flex items-center gap-2 bg-blue-50 text-blue-600 px-4 py-2 rounded-lg font-bold hover:bg-blue-100 transition">
                 <Users size={18} /> View Results
              </button>
-             <button onClick={() => { setTeacher(null); setMode('selection'); setManualTeacherId(''); }} className="text-red-500 font-bold text-sm hover:underline">Logout</button>
            </div>
         </div>
         
@@ -1713,7 +1515,7 @@ const CbtPortal: React.FC<CbtPortalProps> = ({ onBack, initialStudent }) => {
 
                 {success && <p className="text-green-600 text-xs font-bold mb-4 bg-green-50 p-2 rounded">{success}</p>}
                 
-                <button onClick={() => { setStudent(null); setMode('selection'); setManualStudentId({schoolId:'',admissionNumber:''}); setExamSubmitted(false); onBack(); }} className="w-full py-3 bg-gray-900 text-white rounded-xl font-bold hover:bg-gray-800 transition">
+                <button onClick={() => { setStudent(null); setMode('selection'); setExamSubmitted(false); onBack(); }} className="w-full py-3 bg-gray-900 text-white rounded-xl font-bold hover:bg-gray-800 transition">
                    Return to Portal
                 </button>
              </div>
@@ -1785,7 +1587,7 @@ const CbtPortal: React.FC<CbtPortalProps> = ({ onBack, initialStudent }) => {
                 <h2 className="font-bold text-lg">{student.studentName}</h2>
                 <p className="text-xs text-gray-500">{student.admissionNumber}</p>
              </div>
-             <button onClick={() => { setStudent(null); setMode('selection'); setManualStudentId({schoolId:'',admissionNumber:''}); }} className="text-red-500 text-xs font-bold hover:underline">Logout</button>
+             <button onClick={() => { setStudent(null); setMode('selection'); }} className="text-red-500 text-xs font-bold hover:underline">Logout</button>
          </div>
 
          <div className="bg-white rounded-2xl shadow-xl p-8 text-center">
